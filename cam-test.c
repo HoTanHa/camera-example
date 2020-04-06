@@ -15,7 +15,7 @@
 #include <libv4l2.h>
 
 int fd_dev_video;
-char *dev_name = "/dev/video1";
+char *dev_name = "/dev/video01212323";
 
 static void errno_exit(const char *s)
 {
