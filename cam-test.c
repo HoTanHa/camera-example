@@ -15,7 +15,7 @@
 #include <libv4l2.h>
 
 int fd_dev_video;
-char *dev_name = "/dev/video0123445555566565665";
+char *dev_name = "/dev/video0";
 
 static void errno_exit(const char *s)
 {
@@ -37,7 +37,6 @@ static int xioctl(int fh, int request, void *arg)
 
 int main(int argc, char **argv)
 {
-
 	//// OPEN DEVICE /dev/video0
 	struct stat st;
 
