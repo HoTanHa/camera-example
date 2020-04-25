@@ -21,3 +21,6 @@ gcc -o2 -Wall `pkg-config --cflags --libs libv4l2` v4l2-grab.c -lv4l1 -lv4l2 -o 
 ./capture -m -o abc.jpeg -f 640*480 -o -c 100 > output.raw
 ./capture ‐d /dev/video0 ‐F ‐o ‐c 100 > output.raw
 avconv -i output.raw -vcodec copy output.mp4
+v4l2‐ctl --set‐fmt‐video=width=1280,height=720,pixelformat=1 ‐d 1
+./capture.out ‐d /dev/video3 ‐o ‐c 100 > output.raw
+avconv ‐f mjpeg ‐i output.raw output.mp4
