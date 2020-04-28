@@ -53,7 +53,7 @@ file: media/v4l/v4l2grab.c
 	    } while (r == -1 && ((errno == EINTR) || (errno == EAGAIN)));
 
 	    if (r == -1) {
-		    fprintf(stderr, "error %d, %s\\n", errno, strerror(errno));
+		    fprintf(stderr, "error %d, %s\n", errno, strerror(errno));
 		    exit(EXIT_FAILURE);
 	    }
     }
@@ -68,7 +68,7 @@ file: media/v4l/v4l2grab.c
 	    struct timeval                  tv;
 	    int                             r, fd = -1;
 	    unsigned int                    i, n_buffers;
-	    char                            *dev_name = "/dev/video3";
+	    char                            *dev_name = "/dev/video1";
 	    char                            out_name[256];
 	    FILE                            *fout;
 	    struct buffer                   *buffers;
@@ -78,23 +78,25 @@ file: media/v4l/v4l2grab.c
 		    perror("Cannot open device");
 		    exit(EXIT_FAILURE);
 	    }
-
+		printf("Hello world \r\n");
 	    CLEAR(fmt);
 	    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	    fmt.fmt.pix.width       = 1280;
-	    fmt.fmt.pix.height      = 720;
-	    // fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
+	    fmt.fmt.pix.width       = 640;
+	    fmt.fmt.pix.height      = 480;
+//	    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
 		fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-	    fmt.fmt.pix.field       = V4L2_FIELD_INTERLACED;
+//	    fmt.fmt.pix.field       = V4L2_FIELD_INTERLACED;
+	    fmt.fmt.pix.field       = V4L2_FIELD_ANY;
 	    xioctl(fd, VIDIOC_S_FMT, &fmt);
+//		xioctl(fd, VIDIOC_QUERYCAP, &fmt);
 	    if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
-		    printf("Libv4l didn't accept RGB24 format. Can't proceed.\\n");
+		    printf("Libv4l didn't accept RGB24 format. Can't proceed.\n");
 		    exit(EXIT_FAILURE);
 	    }
 	    if ((fmt.fmt.pix.width != 1280) || (fmt.fmt.pix.height != 720))
-		    printf("Warning: driver is sending image at %dx%d\\n",
+		    printf("Warning: driver is sending image at %dx%d\n",
 			    fmt.fmt.pix.width, fmt.fmt.pix.height);
-
+		
 	    CLEAR(req);
 	    req.count = 2;
 	    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
