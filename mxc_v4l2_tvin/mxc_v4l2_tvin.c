@@ -101,6 +101,16 @@ struct testbuffer display_buffers[3];
 struct testbuffer capture_buffers[NUMBER_BUFFERS];
 struct g2d_buf *g2d_buffers[NUMBER_BUFFERS];
 
+unsigned char clamp(double value){
+    int more = (int)value;
+    // if(more){
+    //     int sign = !(more >> 7);
+    //     return sign * 0xff;
+    // }
+	int abc = more < 0 ? 0 : (more > 0xff ? 0xff : more);
+    return abc;
+}
+
 static void draw_image_to_framebuffer(struct g2d_buf *buf, int img_width, int img_height, int img_format,
 									  struct fb_var_screeninfo *screen_info, int left, int top, int to_width, int to_height, int set_alpha, int rotation)
 {
@@ -224,6 +234,7 @@ int start_capturing(void)
 	enum v4l2_buf_type type;
 
 	buffers = calloc(req.count, sizeof(*buffers));
+	printf("REG.count: %ul\r\n", req.count);
 
 	for (i = 0; i < g_capture_num_buffers; i++)
 	{
@@ -243,9 +254,11 @@ int start_capturing(void)
 		}
 
 		buffers[i].length = buf.length;
+		printf("buf.lengh: %u\r\n", buf.length);
+
 		buffers[i].start = mmap(NULL, buf.length,
-				  PROT_READ | PROT_WRITE, MAP_SHARED,
-				  fd_capture_v4l, buf.m.offset);
+								PROT_READ | PROT_WRITE, MAP_SHARED,
+								fd_capture_v4l, buf.m.offset);
 
 		if (g_mem_type == V4L2_MEMORY_MMAP)
 		{
@@ -441,6 +454,8 @@ int v4l_capture_setup(void)
 		fmt.fmt.pix.height = g_display_height;
 	}
 	fmt.fmt.pix.pixelformat = g_in_fmt;
+
+	printf("htha debug: pixelformat: %d", g_in_fmt);
 	fmt.fmt.pix.field = V4L2_FIELD_ANY;
 	if (ioctl(fd_capture_v4l, VIDIOC_S_FMT, &fmt) < 0)
 	{
@@ -752,9 +767,10 @@ int mxc_v4l_tvin_test(void)
 	//	gettimeofday(&fps_old, 0);
 	char out_name[30];
 	FILE *fout;
+	int stt_cam = atoi(&v4l_capture_dev[7]);
 	for (i = 0; i < g_frame_count; i++)
 	{
-		memset(&capture_buf, 0, sizeof(capture_buf));
+		memset(&capture_buf, 0, sizeof(capture_buf));	
 		capture_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		capture_buf.memory = g_mem_type;
 		if (ioctl(fd_capture_v4l, VIDIOC_DQBUF, &capture_buf) < 0)
@@ -767,19 +783,85 @@ int mxc_v4l_tvin_test(void)
 		//se them vao ow day de chhup anh
 		if ((i % 100) == 0)
 		{
-			sprintf(out_name, "out%03d.ppm", i);
-			sprintf(out_name, "out%03d.txt", i);
+		//	printf("size of Capture_buf: %d\r\n", capture_buf.length);
+			printf("size of buffer: %d\r\n", buffers[0].length);
+			sprintf(out_name, "video%d_%03d.ppm", stt_cam, i);
+			//sprintf(out_name, "out%03d.pgmyuv", i);
 			fout = fopen(out_name, "w");
 			if (!fout)
 			{
 				perror("Cannot open image");
 				exit(EXIT_FAILURE);
 			}
-			// fprintf(fout, "P6\n%d %d 255\n", 1280, 720);
+			fprintf(fout, "P6\n%d %d 255\n", 1280, 720);
 			//fprintf(fout, "P6\n%d %d 255\n", fmt.fmt.pix.width, fmt.fmt.pix.height);
-			fwrite(capture_buffers[capture_buf.index].start, capture_buf.bytesused, 1, fout);
+			//fwrite(buffers[capture_buf.index].start, capture_buf.bytesused, 1, fout);
+			// 	for (int ii = 0; ii < 720; i++)
+			// 	{
+			// 		for (int jj = 0; jj < 1280; jj++)
+			// 		{
+			// //			fwrite((buffers->start) + ii * 1280 + jj * 3 + 2, 1, 1, fout);
+			// 			fwrite((buffers->start) + ii * 1280 + jj * 2 + 1, 1, 1, fout);
+			// 			fwrite((buffers->start) + ii * 1280 + jj * 2 + 0, 1, 1, fout);
+			// 		}
+			// 	}
+			int Y0, Y1, Cb, Cr;				  /* gamma pre-corrected input [0;255] */
+			int ER0, ER1, EG0, EG1, EB0, EB1; /* output [0;255] */
+			double r0, r1, g0, g1, b0, b1;	  /* temporaries */
+			double y0, y1, pb, pr;
+			int ii=0;
+			static int packed_value;
+			while (ii < (1280 * 720 * 2))
+			{
+
+				packed_value = buffers[0].start[ii];
+
+				// Y0 = (char)(buffers[0].start[ii+0] & 0xFF);
+				// Cb = (char)(buffers[0].start[ii+1] & 0xFF);
+				// Y1 = (char)(buffers[0].start[ii+2] & 0xFF);
+				// Cr = (char)(buffers[0].start[ii+3] & 0xFF);
+				Cb = (char)(buffers[0].start[ii+0] & 0xFF);
+				Y0 = (char)(buffers[0].start[ii+1] & 0xFF);
+				Cr = (char)(buffers[0].start[ii+2] & 0xFF);
+				Y1 = (char)(buffers[0].start[ii+3] & 0xFF);
+
+				// Strip sign values after shift (i.e. unsigned shift)
+				Y0 = Y0 & 0xFF;
+				Cb = Cb & 0xFF;
+				Y1 = Y1 & 0xFF;
+				Cr = Cr & 0xFF;
+
+				//fprintf( fp, "Value:%x Y0:%x Cb:%x Y1:%x Cr:%x ",packed_value,Y0,Cb,Y1,Cr);
+
+				y0 = (255 / 219.0) * (Y0 - 16);
+				y1 = (255 / 219.0) * (Y1 - 16);
+				pb = (255 / 224.0) * (Cb - 128);
+				pr = (255 / 224.0) * (Cr - 128);
+
+				// Generate first pixel
+				r0 = 1.0 * y0 + 0 * pb + 1.402 * pr;
+				g0 = 1.0 * y0 - 0.344 * pb - 0.714 * pr;
+				b0 = 1.0 * y0 + 1.772 * pb + 0 * pr;
+
+				// Generate next pixel - must reuse pb & pr as 4:2:2
+				r1 = 1.0 * y1 + 0 * pb + 1.402 * pr;
+				g1 = 1.0 * y1 - 0.344 * pb - 0.714 * pr;
+				b1 = 1.0 * y1 + 1.772 * pb + 0 * pr;
+
+				ER0 = clamp(r0);
+				ER1 = clamp(r1);
+				EG0 = clamp(g0);
+				EG1 = clamp(g1);
+				EB0 = clamp(b0);
+				EB1 = clamp(b1);
+
+				fprintf(fout, "%c%c%c%c%c%c", ER0, EG0, EB0, ER1, EG1, EB1); // Output two pixels
+				//fprintf( fp, "Memory:%p Pixel:%d R:%d G:%d B:%d     Pixel:%d R:%d G:%d B:%d \n",location,val,ER0,EG0,EB0,(val+1),ER1,EG1,EB1);
+
+				ii+=4;
+			}
 			fclose(fout);
-		}
+		 }
 		/**************************------------------------********************-*/
 		/*
 		gettimeofday(&fps_current, 0);
