@@ -13,8 +13,9 @@
 //   console.log(`Server running at http://${hostname}:${port}/`);
 // });
 
-var PORT = 49990;
-var HOST = '127.0.0.1';
+var PORT = 3000;
+//var HOST = '127.0.0.1';
+var HOST = '0.0.0.0';
 
 var dgram = require('dgram');
 var server = dgram.createSocket('udp4');

@@ -74,7 +74,6 @@ int g_display_top = 0;
 int g_display_left = 0;
 int g_display_fmt = V4L2_PIX_FMT_UYVY;
 int g_display_base_phy;
-;
 int g_display_size;
 int g_display_fg = 1;
 int g_display_id = 1;
@@ -93,6 +92,7 @@ struct testbuffer
 };
 
 /*test--------------------------------------------------***/
+int stt_cam;
 struct v4l2_format fmt;
 struct v4l2_requestbuffers req;
 struct testbuffer *buffers;
@@ -560,7 +560,7 @@ int fb_display_setup(void)
 	char node[8];
 	struct fb_fix_screeninfo fb_fix;
 	struct mxcfb_pos pos;
-
+	
 	if (ioctl(fd_fb_display, FBIOGET_VSCREENINFO, &g_screen_info) < 0)
 	{
 		printf("fb_display_setup FBIOGET_VSCREENINFO failed\n");
@@ -635,9 +635,15 @@ int fb_display_setup(void)
 
 		if (g_g2d_render)
 		{
+			
 			ioctl(fd_fb_bg, FBIOGET_VSCREENINFO, &g_screen_info);
 
 			g_screen_info.yres_virtual = g_screen_info.yres * g_display_num_buffers;
+			memset(&g_screen_info, 0, sizeof(g_screen_info));
+	g_screen_info.xres = 1920;
+	g_screen_info.yres = 1080;
+	g_screen_info.yres_virtual = g_screen_info.yres * g_display_num_buffers;
+	g_screen_info.nonstd = g_display_fmt;
 			if (ioctl(fd_fb_display, FBIOPUT_VSCREENINFO, &g_screen_info) < 0)
 			{
 				printf("fb_display_setup FBIOPUET_VSCREENINFO failed\n");
@@ -767,7 +773,7 @@ int mxc_v4l_tvin_test(void)
 	//	gettimeofday(&fps_old, 0);
 	char out_name[30];
 	FILE *fout;
-	int stt_cam = atoi(&v4l_capture_dev[7]);
+	// int stt_cam = atoi(&v4l_capture_dev[7]);
 	for (i = 0; i < g_frame_count; i++)
 	{
 		memset(&capture_buf, 0, sizeof(capture_buf));	
@@ -811,6 +817,12 @@ int mxc_v4l_tvin_test(void)
 			double y0, y1, pb, pr;
 			int ii=0;
 			static int packed_value;
+			// //int ii = 0;
+			// for (ii = 0; ii < 50; ii++)
+			// {
+			// 	printf("%02x - %02x  ", buffers[0].start[ii+0], buffers[0].start[ii+2]);
+			// }
+			ii=0;
 			while (ii < (1280 * 720 * 2))
 			{
 
@@ -971,6 +983,7 @@ int process_cmdline(int argc, char **argv)
 		else if (strcmp(argv[i], "-x") == 0)
 		{
 			val = atoi(argv[++i]);
+			stt_cam =val;
 			sprintf(node, "%d", val);
 			strcpy(v4l_capture_dev, "/dev/video");
 			strcat(v4l_capture_dev, node);

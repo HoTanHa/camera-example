@@ -25,19 +25,21 @@
 #include "g2d.h"
 
 //////---------------------------------------
-#include <time.h>
+#include <sys/time.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include "../stb/stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../stb/stb_image_write.h"
-
 
 /* V4L2 capture buffers are obtained from here */
 extern struct capture_testbuffer cap_buffers[];
 extern struct capture_testbuffer buffer_img[];
 FrameBuffer *fb_image;
 int src_fbid_image;
-int image_sizeabc=1280*720*2;
+int image_sizeabc = 1280 * 720 * 2;
+char buff_Y[1280 * 720];
+char buff_CrCb[1280*720];
+int image_thread_wait = 0;
 /* When app need to exit */
 extern int quitflag;
 
@@ -51,10 +53,11 @@ static FILE *fpEncMvInfo = NULL;
 static FILE *fpEncSliceInfo = NULL;
 
 ////------------------------------------------------
-unsigned char clamp(double value){
-    int more = (int)value;
+unsigned char clamp(double value)
+{
+	int more = (int)value;
 	int abc = more < 0 ? 0 : (more > 0xff ? 0xff : more);
-    return abc;
+	return (char)(abc&0xff);
 }
 
 void SaveEncMbInfo(u8 *mbParaBuf, int size, int MbNumX, int EncNum)
@@ -770,12 +773,13 @@ void encoder_thread(void *arg)
 	/****-----debug----------------------***********/
 	image_sizeabc = img_size;
 	if ((enc->cmdl->format == STD_MJPG) && (enc->mjpg_fmt == MODE422 || enc->mjpg_fmt == MODE224))
-		printf("Debug: enc_thread: std_mjpg && (mode 422 orr mode 224)\r\n");
+		printf("Debug: enc_thread: std_mjpg && (mode 422 orr mode 224)..%d\r\n", image_sizeabc);
 	else
 	{
-		printf("Debug: enc_thread: NO std_mjpg && (mode 422 orr mode 224)\r\n");
+		printf("Debug: enc_thread: NO std_mjpg && (mode 422 orr mode 224)..%d\r\n", image_sizeabc);
 		////. luon la truong hop nay
 	}
+	image_thread_wait = 1;
 	/******** ..............end debug............. *******/
 	/* The main encoding loop */
 	while (1)
@@ -795,20 +799,35 @@ void encoder_thread(void *arg)
 					break;
 				}
 			}
-
 			//			gettimeofday(&tv_start, 0);  //qiang_debug added
 			fb[src_fbid].myIndex = enc->src_fbid + index;
 			fb[src_fbid].bufY = cap_buffers[index].offset;
 			fb[src_fbid].bufCb = fb[src_fbid].bufY + img_size;
 			if ((enc->cmdl->format == STD_MJPG) &&
 				(enc->mjpg_fmt == MODE422 || enc->mjpg_fmt == MODE224))
+			{
 				fb[src_fbid].bufCr = fb[src_fbid].bufCb + (img_size >> 1);
+				//printf("...");
+			}
 			else
+			{
 				fb[src_fbid].bufCr = fb[src_fbid].bufCb + (img_size >> 2);
+				//cai naynhe
+				//printf("***");
+			}
 			fb[src_fbid].strideY = enc->src_picwidth;
 			fb[src_fbid].strideC = enc->src_picwidth / 2;
-			memcpy(fb_image,fb, img_size*2);
-			src_fbid_image=src_fbid;
+
+			// if (image_thread_wait == 0)
+			// {
+			// 	//printf("DEBUG: %d.....%d..%d\r\n", fb[src_fbid].bufY, fb[src_fbid].bufCb, fb[src_fbid].bufCr);
+			// 	// printf("DEBUG: %d.....%d--%d\r\n", cap_buffers[index].offset, cap_buffers[index].length, cap_buffers[index].start);
+			// 	memcpy(buff_Y, &(cap_buffers[index].start[0]), img_size);
+			// memcpy(buff_CrCb, &(cap_buffers[index].start[img_size]), img_size / 2);
+				
+			// 	image_thread_wait = 1;
+			// }
+
 		}
 		else
 		{
@@ -1003,31 +1022,33 @@ err3:
 
 extern int device_video;
 
-void image_thread(void *arg) {
+void image_thread(void *arg)
+{
 	char image_ppm[30];
 	char img_jpg[30];
 	FILE *fout;
-	int count =0;
+	int count = 0;
 	time_t t = time(NULL);
 	struct tm tm;
-	
-	// t = time(NULL);
-	// tm = *localtime(&t);
-	// sprintf(str, "Helloworld_%02d_%02d_%02d.\r\n", tm.tm_hour, tm.tm_min, tm.tm_sec);
+	printf("Debug: image thread....\r\n");
 	int Y0, Y1, Cb, Cr;				  /* gamma pre-corrected input [0;255] */
 	int ER0, ER1, EG0, EG1, EB0, EB1; /* output [0;255] */
 	double r0, r1, g0, g1, b0, b1;	  /* temporaries */
 	double y0, y1, pb, pr;
-	while (1){
-		usleep(100000);	
+	
+	while (1)
+	{
+		memset(buff_Y, 0, image_sizeabc);
+		image_thread_wait = 0;
+		usleep(100000);
 		count++;
-		if (count==100)
+		if (count == 100)
 		{
 			count = 0;
 			t = time(NULL);
 			tm = *localtime(&t);
-			sprintf(image_ppm, "image_%04d%02d%02d_%02d%02d%02d.ppm", tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-			// sprintf(image_ppm, "video%d_%03d.ppm", device_video, i);
+			sprintf(image_ppm, "image_%04d%02d%02d_%02d%02d%02d.ppm", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+			//sprintf(image_ppm, "video%d_%03d.ppm", device_video, i);
 			//sprintf(image_ppm, "out%03d.pgmyuv", i);
 			fout = fopen(image_ppm, "w");
 			if (!fout)
@@ -1036,71 +1057,74 @@ void image_thread(void *arg) {
 				exit(EXIT_FAILURE);
 			}
 			fprintf(fout, "P6\n%d %d 255\n", 1280, 720);
-
+			int ii = 0;
 			
-			int ii=0;
-			while (ii < ((1280 * 720 * 2)/4))
+			printf("\r\n");
+			ii=0;
+			for (int iii = 0; iii < 720; iii++)
 			{
-				// fb_image[src_fbid_image].bufY
-				// fb_image[src_fbid_image].bufCb
-				// fb_image[src_fbid_image].bufCr
-				// Cb = (char)(buffer_img[0].start[ii+0] & 0xFF);
-				// Y0 = (char)(buffer_img[0].start[ii+1] & 0xFF);
-				// Cr = (char)(buffer_img[0].start[ii+2] & 0xFF);
-				// Y1 = (char)(buffer_img[0].start[ii+3] & 0xFF);
-				// ii+=4;
-				Cb=fb_image[src_fbid_image].bufCb + ii;
-				Y0=fb_image[src_fbid_image].bufY + ii;
-				Cr=fb_image[src_fbid_image].bufCr +ii;
-				Y1=fb_image[src_fbid_image].bufY + 2*ii;
-				ii++;
-				// Strip sign values after shift (i.e. unsigned shift)
-				Y0 = Y0 & 0xFF;
-				Cb = Cb & 0xFF;
-				Y1 = Y1 & 0xFF;
-				Cr = Cr & 0xFF;
+				int iii_temp = iii/2;
+				for (int jjj = 0; jjj < 1280/2; jjj++)
+				{
+					int C_temp = 2*jjj + 1280*(iii_temp);
+					int Y_temp = 2*jjj + 1280*iii;
+					Y0 = (char)(buff_Y[Y_temp]);// & 0xFF);
+					Y1 = (char)(buff_Y[Y_temp+1]);// & 0xFF);
+					Cb = (char)(buff_CrCb[C_temp]);// & 0xFF);
+					Cr = (char)(buff_CrCb[C_temp+1]);// & 0xFF);
+					
 
-				//fprintf( fp, "Value:%x Y0:%x Cb:%x Y1:%x Cr:%x ",packed_value,Y0,Cb,Y1,Cr);
+					// Strip sign values after shift (i.e. unsigned shift)
+					Y0 = Y0 & 0xFF;
+					Cb = (Cb) & 0xFF;
+					Y1 = Y1 & 0xFF;
+					Cr = (Cr) & 0xFF;
 
-				y0 = (255 / 219.0) * (Y0 - 16);
-				y1 = (255 / 219.0) * (Y1 - 16);
-				pb = (255 / 224.0) * (Cb - 128);
-				pr = (255 / 224.0) * (Cr - 128);
+					//fprintf( fp, "Value:%x Y0:%x Cb:%x Y1:%x Cr:%x ",packed_value,Y0,Cb,Y1,Cr);
+					y0 = (255.0 / 219.0) * (Y0 - 16);
+					y1 = (255.0 / 219.0) * (Y1 - 16);
+					pb = (255.0 / 224.0) * (Cb - 128);
+					pr = (255.0 / 224.0) * (Cr - 128);
 
-				// Generate first pixel
-				r0 = 1.0 * y0 + 0 * pb + 1.402 * pr;
-				g0 = 1.0 * y0 - 0.344 * pb - 0.714 * pr;
-				b0 = 1.0 * y0 + 1.772 * pb + 0 * pr;
+					// B = 1.164(Y - 16)                   + 2.018(U - 128)
+					// G = 1.164(Y - 16) - 0.813(V - 128) - 0.391(U - 128)
+					// R = 1.164(Y - 16) + 1.596(V - 128)
 
-				// Generate next pixel - must reuse pb & pr as 4:2:2
-				r1 = 1.0 * y1 + 0 * pb + 1.402 * pr;
-				g1 = 1.0 * y1 - 0.344 * pb - 0.714 * pr;
-				b1 = 1.0 * y1 + 1.772 * pb + 0 * pr;
+					// Generate first pixel
+					r0 = y0 + 		1.402 * pr;
+					g0 = y0 - 0.344 * pb - 0.714 * pr;
+					b0 = y0 + 1.772 * pb	;
 
-				ER0 = clamp(r0);
-				ER1 = clamp(r1);
-				EG0 = clamp(g0);
-				EG1 = clamp(g1);
-				EB0 = clamp(b0);
-				EB1 = clamp(b1);
+					// Generate next pixel - must reuse pb & pr as 4:2:2
+					r1 = y1 +		1.402 * pr;
+					g1 = y1 - 0.344 * pb - 0.714 * pr;
+					b1 = y1 + 1.772 * pb 	;
 
-				fprintf(fout, "%c%c%c%c%c%c", ER0, EG0, EB0, ER1, EG1, EB1); // Output two pixels
-				//fprintf( fp, "Memory:%p Pixel:%d R:%d G:%d B:%d     Pixel:%d R:%d G:%d B:%d \n",location,val,ER0,EG0,EB0,(val+1),ER1,EG1,EB1);
-
-				
+					ER0 = clamp(r0);
+					ER1 = clamp(r1);
+					EG0 = clamp(g0);
+					EG1 = clamp(g1);
+					EB0 = clamp(b0);
+					EB1 = clamp(b1);
+					fprintf(fout, "%c%c%c%c%c%c", ER0, EG0, EB0, ER1, EG1, EB1); // Output two pixels
+					//fprintf( fp, "Memory:%p Pixel:%d R:%d G:%d B:%d     Pixel:%d R:%d G:%d B:%d \n",location,val,ER0,EG0,EB0,(val+1),ER1,EG1,EB1);
+					ii++;
+				}
 			}
-		
+
+
 			fclose(fout);
 
 			int width, height, channels;
 			unsigned char *imgabc = stbi_load(image_ppm, &width, &height, &channels, 0);
 			printf("Loaded image with a width of %dpx, a height of %dpx and %d channels\n", width, height, channels);
-			sprintf(img_jpg, "img_%04d%02d%02d_%02d%02d%02d.jpg", tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-				
+			sprintf(img_jpg, "imagejpg_%04d%02d%02d_%02d%02d%02d.jpg", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+
 			stbi_write_jpg(img_jpg, width, height, channels, imgabc, 100);
 			//remove(image_ppm);
 		}
-		if (quitflag){
+		if (quitflag)
+		{
 			break;
 		}
 	}
@@ -1120,8 +1144,6 @@ static int encoder_start(struct encode *enc)
 	pthread_cond_init(&vpu_cond, NULL);
 
 	printf("DEBUG:...Tao Thread encoder...\r\n");
-	//image_sizeabc = 1280*720*2;
-	calloc(fb_image, image_sizeabc);
 	ret = pthread_create(&enc_thread_id, NULL, (void *)encoder_thread, (void *)enc);
 	if (ret)
 	{
@@ -1132,7 +1154,7 @@ static int encoder_start(struct encode *enc)
 	sleep(1);
 
 	pthread_create(&image_thread_id, NULL, (void *)image_thread, NULL);
-
+	int img_size = 1280*720;
 
 	if (src_scheme == PATH_V4L2)
 	{
@@ -1158,6 +1180,14 @@ static int encoder_start(struct encode *enc)
 			}
 
 			index = v4l2_buf.index;
+			if (image_thread_wait == 0)
+			{
+				//printf("DEBUG: %d.....%d..%d\r\n", fb[src_fbid].bufY, fb[src_fbid].bufCb, fb[src_fbid].bufCr);
+				// printf("DEBUG: %d.....%d--%d\r\n", cap_buffers[index].offset, cap_buffers[index].length, cap_buffers[index].start);
+				memcpy(buff_Y, &(cap_buffers[index].start[0]), img_size);
+				memcpy(buff_CrCb, &(cap_buffers[index].start[img_size]), img_size / 2);
+				image_thread_wait = 1;
+			}
 			queue_buf(&vpu_q, index);		 ////..dua v4l2_buff.index vao list cua queue vpu_q
 			wakeup_queue();					 //// mo khoa hang doi queue dung signal
 			v4l_put_capture_data(&v4l2_buf); ////.. ioctl VIDIOC_QBUF

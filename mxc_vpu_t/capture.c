@@ -59,7 +59,7 @@ extern int g_fb_size;
 extern struct fb_var_screeninfo g_screen_info;
 
 
-static int mode_sizes_buf[MAX_CAPTURE_MODES][2];
+static int mode_sizes_buf[MAX_CAPTURE_MODES][2];/*  */
 
 int prepare_buffers(void)
 {
@@ -305,6 +305,7 @@ int v4l_capture_setup(struct encode *enc, int width, int height, int fps)
 			v4l_capture_dev);
 		return -1;
 	}
+	printf("DEbug:..pixelformat......:%d\r\n", g_in_fmt);
 
 	/* Note VIDIOC_S_FMT may change width and height. */
 

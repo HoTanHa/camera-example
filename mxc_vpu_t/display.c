@@ -203,11 +203,15 @@ int fb_display_setup(void)
 		}
 
         memset(&g_screen_info, 0, sizeof(g_screen_info));
-		g_screen_info.xres = g_display_width;
-		g_screen_info.yres = g_display_height;
-		g_screen_info.yres_virtual = g_screen_info.yres * 3;
-		g_screen_info.bits_per_pixel = 24;
-		g_screen_info.nonstd = V4L2_PIX_FMT_RGB24;
+		// g_screen_info.xres = g_display_width;
+		// g_screen_info.yres = g_display_height;
+		// g_screen_info.yres_virtual = g_screen_info.yres * 3;
+		 g_screen_info.bits_per_pixel = 24;
+		 g_screen_info.nonstd = V4L2_PIX_FMT_RGB24;
+		g_screen_info.xres = 1920;
+	g_screen_info.yres = 1080;
+	g_screen_info.yres_virtual = g_screen_info.yres * 3;
+	//g_screen_info.nonstd = g_display_fmt;
 		if (ioctl(fd_fb, FBIOPUT_VSCREENINFO, &g_screen_info) < 0) {
 			printf("fb_display_setup FBIOPUET_VSCREENINFO failed\n");
 			close(fd_fb);
