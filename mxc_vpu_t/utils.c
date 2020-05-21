@@ -210,6 +210,19 @@ udp_recv(struct cmd_line *cmd, int sd, char *buf, int n)
 }
 
 /* send data to remote server */
+typedef struct my_rtp_header
+{
+	uint8_t versionpxcc ;
+	uint8_t m_PayloadType;
+	uint16_t sq_num ;
+	uint32_t timestamp ;
+	uint32_t SSRC;
+} ;
+
+static struct my_rtp_header rtp_header = {0};
+char nal_buff[4]={0,0,0,1};
+uint32_t timestamp=0;
+uint32_t rtp_sq =0;
 static int
 udp_send(struct cmd_line *cmd, int sd, char *buf, int n)
 {
@@ -217,27 +230,42 @@ udp_send(struct cmd_line *cmd, int sd, char *buf, int n)
 	struct nethdr net_h;
 	struct sockaddr_in addr;
 
-	bzero(&addr, sizeof(addr));
+	// bzero(&addr, sizeof(addr));
+	memset(&addr, 0, sizeof(addr));
 	hdrlen = sizeof(net_h);
 	if ((n + hdrlen) > DEFAULT_PKT_SIZE) {
 		err_msg("panic: increase default udp pkt size! %d\n", n);
 		while (1);
 	}
+	
 
 	if (n == 0) {
 		net_h.seqno = -1;
 		net_h.len = 0;
-		memcpy(cmd->nbuf, (char *)&net_h, hdrlen);
+	//	memcpy(cmd->nbuf, (char *)&net_h, hdrlen);
 	} else {
-		net_h.seqno = cmd->seq_no++;
-		net_h.iframe = cmd->iframe;
-		net_h.len = n;
-		memcpy(cmd->nbuf, (char *)&net_h, hdrlen);
-		memcpy((cmd->nbuf + hdrlen), buf, n);
+		// net_h.seqno = cmd->seq_no++;
+		// net_h.iframe = cmd->iframe;
+		// net_h.len = n;
+	//	memcpy(cmd->nbuf, (char *)&net_h, hdrlen);
+	//	memcpy((cmd->nbuf + hdrlen), buf, n);
 	}
-	dprintf(4, "TX: neth seqno %d, iframe %d, len %d\n", net_h.seqno, net_h.iframe, net_h.len);
+	
+	rtp_header.versionpxcc = 0x80;
+	rtp_header.m_PayloadType = 96+0x0;
+	rtp_header.SSRC = 0;
+	rtp_header.sq_num = htons(ntohs(rtp_header.sq_num) + 1);
+	rtp_header.timestamp = htonl(timestamp);
+	//rtp_header.timestamp = htonl(ntohl(rtp_header.timestamp)+ 3600);
+	timestamp+=3600;
+	memcpy(cmd->nbuf, &rtp_header, 12);
+	memcpy((cmd->nbuf + 12), buf, n);
+	n +=12;
 
-	n += hdrlen;
+	dprintf(4, "TX: neth seqno %d, iframe %d, len %d\n", net_h.seqno, net_h.iframe, net_h.len);
+	//printf( "TX: neth seqno %d, iframe %d, len %d\n", net_h.seqno, net_h.iframe, net_h.len);
+
+	//n += hdrlen;
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(cmd->port);
 	addr.sin_addr.s_addr = inet_addr(cmd->output);
@@ -277,17 +305,20 @@ vpu_read(struct cmd_line *cmd, char *buf, int n)
 	return freadn(fd, buf, n);
 #endif
 }
-
+uint8_t abc=0;
+extern uint8_t fillheader;
 int
 vpu_write(struct cmd_line *cmd, char *buf, int n)
 {
 	int fd = cmd->dst_fd;
+	int fd_file = cmd->dst_fd_file;
 
 	if (cmd->dst_scheme == PATH_NET) {
-		return udp_send(cmd, fd, buf, n);
+			udp_send(cmd, fd, buf, n);
+		abc++;
 	}
 
-	return fwriten(fd, buf, n);
+	return fwriten(fd_file, buf, n);
 }
 
 static char*
@@ -345,7 +376,8 @@ get_arg(char *buf, int *argc, char *argv[])
 	argv[*argc] = NULL;
 }
 
-static int
+// static int
+int
 udp_open(struct cmd_line *cmd)
 {
 	int sd;
@@ -367,7 +399,8 @@ udp_open(struct cmd_line *cmd)
 
 	/* If server, then bind */
 	if (cmd->src_scheme == PATH_NET) {
-		bzero(&addr, sizeof(addr));
+		// bzero(&addr, sizeof(addr));
+		memset(&addr, 0, sizeof(addr));
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(cmd->port);
 		addr.sin_addr.s_addr = INADDR_ANY;
@@ -384,7 +417,7 @@ udp_open(struct cmd_line *cmd)
 
 	return sd;
 }
-
+extern int device_video;
 int
 open_files(struct cmd_line *cmd)
 {
@@ -410,7 +443,8 @@ open_files(struct cmd_line *cmd)
 		}
 		info_msg("Input file \"%s\" opened.\n", cmd->input);
 #endif
-	} else if (cmd->src_scheme == PATH_NET) {
+	} 
+	else if (cmd->src_scheme == PATH_NET) {
 		/* open udp port for receive */
 		cmd->src_fd = udp_open(cmd);
 		if (cmd->src_fd < 0) {
@@ -434,16 +468,35 @@ open_files(struct cmd_line *cmd)
 		}
 		info_msg("Output file \"%s\" opened.\n", cmd->output);
 #endif
-	} else if (cmd->dst_scheme == PATH_NET) {
+	} 
+	else if (cmd->dst_scheme == PATH_NET) {
 		/* open udp port for send path */
-		cmd->dst_fd = udp_open(cmd);
-		if (cmd->dst_fd < 0) {
-			if (cmd->src_scheme == PATH_NET)
-				close(cmd->src_fd);
-			return -1;
-		}
 
-		info_msg("encoder sending on port %d\n", cmd->port);
+
+		// char strname[60];
+
+		// time_t t = time(NULL);
+		// struct tm tm;
+		// t = time(NULL);
+		// tm = *localtime(&t);
+
+		// sprintf(strname, "/home/root/mount/cam%d_%04d%02d%02d_%02d%02d.h264", device_video, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
+		// cmd->dst_fd_file = open(strname, O_CREAT | O_RDWR | O_TRUNC,
+		// 			S_IRWXU | S_IRWXG | S_IRWXO);
+		// if (cmd->dst_fd_file <0) {
+		// 	printf("Open File Fail.\r\n");
+		// } 
+		// else {
+		// 	printf("Open File Success.\r\n");
+		// }
+		// cmd->dst_fd = udp_open(cmd);
+		// if (cmd->dst_fd < 0) {
+		// 	if (cmd->src_scheme == PATH_NET)
+		// 		close(cmd->src_fd);
+		// 	return -1;
+		// }
+
+		// info_msg("encoder sending on port %d\n", cmd->port);
 	}
 
 	return 0;
@@ -659,7 +712,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "operation");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -672,7 +726,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "input");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -686,7 +741,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "output");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -700,7 +756,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "port");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -713,7 +770,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "format");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -726,7 +784,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "rotation");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -740,7 +799,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "ipu_rot");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -755,7 +815,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
         str = strstr(buf, "ip");
         if (str != NULL) {
-                str = index(buf, '=');
+			// str = index(buf, '=');
+                str = strchr(buf, '=');
                 if (str != NULL) {
                         str++;
                         if (*str != '\0') {
@@ -769,7 +830,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "count");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -782,7 +844,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "chromaInterleave");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -795,7 +858,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "mp4Class");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -808,7 +872,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "deblock");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -821,7 +886,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "dering");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -834,7 +900,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "mirror");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -847,7 +914,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "width");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -860,7 +928,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "height");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -873,7 +942,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "bitrate");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -886,7 +956,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "prescan");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -900,7 +971,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "gop");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {
@@ -913,7 +985,8 @@ int parse_options(char *buf, struct cmd_line *cmd, int *mode)
 
 	str = strstr(buf, "quantParam");
 	if (str != NULL) {
-		str = index(buf, '=');
+		// str = index(buf, '=');
+		str = strchr(buf, '=');
 		if (str != NULL) {
 			str++;
 			if (*str != '\0') {

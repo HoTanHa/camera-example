@@ -1217,7 +1217,8 @@ decoder_start(struct decode *dec)
 		/* In 8 instances test, we found some instance(s) may not get a chance to be scheduled
 		 * until timeout, so we yield schedule each frame explicitly.
 		 * This may be kernel dependant and may be removed on customer platform */
-		usleep(0);
+		// usleep(0);
+		nanosleep((const struct timespec[]){{0, 100L}}, NULL);
 
 		if ((dec->cmdl->format == STD_MJPG) &&
 		    (outinfo.indexFrameDisplay == 0)) {
@@ -1563,9 +1564,10 @@ decoder_start(struct decode *dec)
 		}
 
 		delay_ms = getenv("VPU_DECODER_DELAY_MS");
-		if (delay_ms && strtol(delay_ms, &endptr, 10))
-			usleep(strtol(delay_ms,&endptr, 10) * 1000);
-
+		if (delay_ms && strtol(delay_ms, &endptr, 10)){
+			// usleep(strtol(delay_ms,&endptr, 10) * 1000);
+			nanosleep((const struct timespec[]){{0, strtol(delay_ms,&endptr, 10) * 1000000}}, NULL);
+		}
 		if (decodefinish)
 			break;
 	}

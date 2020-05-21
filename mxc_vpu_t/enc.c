@@ -12,14 +12,13 @@
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
  */
-
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>
 #include "vpu_test.h"
 #include "vpu_jpegtable.h"
 #include "g2d.h"
@@ -27,18 +26,15 @@
 //////---------------------------------------
 #include <sys/time.h>
 #define STB_IMAGE_IMPLEMENTATION
-#include "../stb/stb_image.h"
+#include "../../stb/stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "../stb/stb_image_write.h"
+#include "../../stb/stb_image_write.h"
 
 /* V4L2 capture buffers are obtained from here */
 extern struct capture_testbuffer cap_buffers[];
-extern struct capture_testbuffer buffer_img[];
-FrameBuffer *fb_image;
-int src_fbid_image;
 int image_sizeabc = 1280 * 720 * 2;
 char buff_Y[1280 * 720];
-char buff_CrCb[1280*720];
+char buff_CrCb[1280 * 720];
 int image_thread_wait = 0;
 /* When app need to exit */
 extern int quitflag;
@@ -53,11 +49,308 @@ static FILE *fpEncMvInfo = NULL;
 static FILE *fpEncSliceInfo = NULL;
 
 ////------------------------------------------------
+extern int device_video;
+int fd_fb_display = 0;
+// int g_display_width = 0;
+// int g_display_height = 0;
+// int g_display_top = 0;
+// int g_display_left = 0;
+// int g_display_fmt = V4L2_PIX_FMT_UYVY;
+int g_display_base_phy;
+int g_display_size;
+int g_display_fg = 1;
+int g_display_id;
+
+struct fb_var_screeninfo g_screen_info;
+int g_display_num_buffers = 3;
+int g_capture_num_buffers = 4;
+int g_in_width = 1280;
+int g_in_height = 720;
+int g_display_width = 960;
+int g_display_height = 540;
+int g_display_top = 0;
+int g_display_left = 0;
+int g_display_fmt = V4L2_PIX_FMT_NV12;
+int g_g2d_fmt = G2D_NV12;
+// int	g_frame_size = g_in_width * g_in_height * 3 / 2;
+int g_frame_size = 1280 * 720 * 3 / 2;
+extern struct g2d_buf *g2d_buffers[];
+extern int screen_width;
+extern int screen_height;
+//------------------------------------------------------
 unsigned char clamp(double value)
 {
 	int more = (int)value;
 	int abc = more < 0 ? 0 : (more > 0xff ? 0xff : more);
-	return (char)(abc&0xff);
+	return (char)(abc & 0xff);
+}
+#define GOP_SIZE 15
+////------------------------------------------------------------
+struct display_queue
+{
+	int list[MAX_BUF_NUM + 1];
+	int head;
+	int tail;
+};
+
+struct display_queue display_q;
+
+static pthread_mutex_t display_mutex;
+static pthread_cond_t display_cond;
+static int display_waiting = 0;
+static int dislay_running = 0;
+static inline void wait_dp_queue()
+{
+	pthread_mutex_lock(&display_mutex);
+	display_waiting = 1;
+	pthread_cond_wait(&display_cond, &display_mutex);
+	pthread_mutex_unlock(&display_mutex);
+}
+
+static inline void wakeup_dp_queue()
+{
+	pthread_cond_signal(&display_cond);
+}
+
+static __inline int queue_dp_size(struct display_queue *dp_q)
+{
+	if (dp_q->tail >= dp_q->head)
+		return (dp_q->tail - dp_q->head);
+	else
+		return ((dp_q->tail + QUEUE_SIZE) - dp_q->head);
+}
+
+static __inline int queue_dp_buf(struct display_queue *dp_q, int idx)
+{
+	if (((dp_q->tail + 1) % QUEUE_SIZE) == dp_q->head)
+		return -1; /* queue full */
+	pthread_mutex_lock(&display_mutex);
+	dp_q->list[dp_q->tail] = idx;
+	dp_q->tail = (dp_q->tail + 1) % QUEUE_SIZE;
+	pthread_mutex_unlock(&display_mutex);
+	return 0;
+}
+
+static __inline int dequeue_dp_buf(struct display_queue *dp_q)
+{
+	int ret;
+	if (dp_q->tail == dp_q->head)
+		return -1; /* queue empty */
+	pthread_mutex_lock(&display_mutex);
+	ret = dp_q->list[dp_q->head];
+	dp_q->head = (dp_q->head + 1) % QUEUE_SIZE;
+	pthread_mutex_unlock(&display_mutex);
+	return ret;
+}
+
+static void draw_image_to_framebuffer_tvin(struct g2d_buf *buf, int img_width, int img_height, int img_format,
+										   struct fb_var_screeninfo *screen_info, int left, int top, int to_width, int to_height, int set_alpha, int rotation)
+{
+	struct g2d_surface src, dst;
+	void *g2dHandle;
+
+	if (((left + to_width) > (int)screen_info->xres) || ((top + to_height) > (int)screen_info->yres))
+	{
+		printf("Bad display image dimensions!\n");
+		return;
+	}
+
+#if G2D_CACHEABLE
+	g2d_cache_op(buf, G2D_CACHE_FLUSH);
+#endif
+
+	if (g2d_open(&g2dHandle) == -1 || g2dHandle == NULL)
+	{
+		printf("Fail to open g2d device!\n");
+		g2d_free(buf);
+		return;
+	}
+
+	/*
+	NOTE: in this example, all the test image data meet with the alignment requirement.
+	Thus, in your code, you need to pay attention on that.
+
+	Pixel buffer address alignment requirement,
+	RGB/BGR:  pixel data in planes [0] with 16bytes alignment,
+	NV12/NV16:  Y in planes [0], UV in planes [1], with 64bytes alignment,
+	I420:    Y in planes [0], U in planes [1], V in planes [2], with 64 bytes alignment,
+	YV12:  Y in planes [0], V in planes [1], U in planes [2], with 64 bytes alignment,
+	NV21/NV61:  Y in planes [0], VU in planes [1], with 64bytes alignment,
+	YUYV/YVYU/UYVY/VYUY:  in planes[0], buffer address is with 16bytes alignment.
+*/
+
+	src.format = img_format;
+	switch (src.format)
+	{
+	case G2D_RGB565:
+	case G2D_RGBA8888:
+	case G2D_RGBX8888:
+	case G2D_BGRA8888:
+	case G2D_BGRX8888:
+	case G2D_BGR565:
+	case G2D_YUYV:
+	case G2D_UYVY:
+		src.planes[0] = buf->buf_paddr;
+		break;
+	case G2D_NV12:
+		src.planes[0] = buf->buf_paddr;
+		src.planes[1] = buf->buf_paddr + img_width * img_height;
+		break;
+	case G2D_I420:
+		src.planes[0] = buf->buf_paddr;
+		src.planes[1] = buf->buf_paddr + img_width * img_height;
+		src.planes[2] = src.planes[1] + img_width * img_height / 4;
+		break;
+	case G2D_YV12:
+		src.planes[0] = buf->buf_paddr;
+		src.planes[2] = buf->buf_paddr + img_width * img_height;
+		src.planes[1] = src.planes[2] + img_width * img_height / 4;
+		break;
+	case G2D_NV16:
+		src.planes[0] = buf->buf_paddr;
+		src.planes[1] = buf->buf_paddr + img_width * img_height;
+		break;
+	default:
+		printf("Unsupport image format in the example code\n");
+		return;
+	}
+
+	src.left = 0;
+	src.top = 0;
+	src.right = img_width;
+	src.bottom = img_height;
+	src.stride = img_width;
+	src.width = img_width;
+	src.height = img_height;
+	src.rot = G2D_ROTATION_0;
+
+	dst.planes[0] = g_display_base_phy;
+	dst.left = left;
+	dst.top = top;
+	dst.right = left + to_width;
+	dst.bottom = top + to_height;
+	dst.stride = screen_info->xres;
+	dst.width = screen_info->xres;
+	dst.height = screen_info->yres;
+	dst.rot = rotation;
+	dst.format = screen_info->bits_per_pixel == 16 ? G2D_RGB565 : (screen_info->red.offset == 0 ? G2D_RGBA8888 : G2D_BGRA8888);
+
+	if (set_alpha)
+	{
+		src.blendfunc = G2D_ONE;
+		dst.blendfunc = G2D_ONE_MINUS_SRC_ALPHA;
+
+		src.global_alpha = 0x80;
+		dst.global_alpha = 0xff;
+
+		g2d_enable(g2dHandle, G2D_BLEND);
+		g2d_enable(g2dHandle, G2D_GLOBAL_ALPHA);
+	}
+
+	g2d_blit(g2dHandle, &src, &dst);
+	g2d_finish(g2dHandle);
+
+	if (set_alpha)
+	{
+		g2d_disable(g2dHandle, G2D_GLOBAL_ALPHA);
+		g2d_disable(g2dHandle, G2D_BLEND);
+	}
+
+	g2d_close(g2dHandle);
+}
+
+extern char fb_dev[];
+extern char fb_dev_fg[];
+int fb_display_setup_tvin(void)
+{
+	int fd_fb = 0;
+	struct mxcfb_gbl_alpha alpha;
+	char node[8];
+	struct fb_fix_screeninfo fb_fix;
+	struct mxcfb_pos pos;
+
+
+	if ((fd_fb_display = open(fb_dev_fg, O_RDWR, 0)) < 0)
+	{
+		printf("Unable to open %s\n", fb_dev_fg);
+		exit(1);
+	}
+
+	if (ioctl(fd_fb_display, FBIOGET_VSCREENINFO, &g_screen_info) < 0)
+	{
+		printf("fb_display_setup FBIOGET_VSCREENINFO failed 111\n");
+		return 1;
+	}
+
+	if (ioctl(fd_fb_display, FBIOGET_FSCREENINFO, &fb_fix) < 0)
+	{
+		printf("fb_display_setup FBIOGET_FSCREENINFO failed 222\n");
+		return 1;
+	}
+
+	printf("fb_fix.id = %s.\r\n", fb_fix.id);
+	if ((strcmp(fb_fix.id, "DISP4 FG") == 0) || (strcmp(fb_fix.id, "DISP3 FG") == 0))
+	{
+		g_display_fg = 1;
+		pos.x = 0;
+		pos.y = 0;
+
+		if (ioctl(fd_fb_display, MXCFB_SET_OVERLAY_POS, &pos) < 0)
+		{
+			printf("fb_display_setup MXCFB_SET_OVERLAY_POS failed\n");
+			return 1;
+		}
+
+		if ((fd_fb = open(fb_dev, O_RDWR)) < 0)
+		{
+			printf("Unable to open bg frame buffer\n");
+			return 1;
+		}
+
+		/* Overlay setting */
+		alpha.alpha = 0;
+		alpha.enable = 1;
+		if (ioctl(fd_fb, MXCFB_SET_GBL_ALPHA, &alpha) < 0)
+		{
+			printf("Set global alpha failed\n");
+			close(fd_fb);
+			return 1;
+		}
+
+		ioctl(fd_fb, FBIOGET_VSCREENINFO, &g_screen_info);
+
+		memset(&g_screen_info, 0, sizeof(g_screen_info));
+		g_screen_info.xres = 1920;
+		g_screen_info.yres = 1080;
+		g_screen_info.yres_virtual = g_screen_info.yres * g_display_num_buffers;
+		g_screen_info.nonstd = V4L2_PIX_FMT_RGB565; //g_display_fmt;
+		if (ioctl(fd_fb_display, FBIOPUT_VSCREENINFO, &g_screen_info) < 0)
+		{
+			printf("fb_display_setup FBIOPUET_VSCREENINFO failed\n");
+			return -1;
+		}
+		ioctl(fd_fb_display, FBIOGET_FSCREENINFO, &fb_fix);
+		ioctl(fd_fb_display, FBIOGET_VSCREENINFO, &g_screen_info);
+	}
+	else
+	{
+		g_display_fg = 0;
+	}
+
+	ioctl(fd_fb_display, FBIOBLANK, FB_BLANK_UNBLANK);
+
+	g_display_base_phy = fb_fix.smem_start;
+	printf("fb: smem_start = 0x%x, smem_len = 0x%x.\r\n", (unsigned int)fb_fix.smem_start, (unsigned int)fb_fix.smem_len);
+
+	g_display_size = g_screen_info.xres * g_screen_info.yres * g_screen_info.bits_per_pixel / 8;
+	printf("fb: frame buffer size = 0x%x bytes.\r\n", g_display_size);
+
+	printf("fb: g_screen_info.xres = %d, g_screen_info.yres = %d.\r\n", g_screen_info.xres, g_screen_info.yres);
+	printf("fb: g_display_left = %d.\r\n", g_display_left);
+	printf("fb: g_display_top = %d.\r\n", g_display_top);
+	printf("fb: g_display_width = %d.\r\n", g_display_width);
+	printf("fb: g_display_height = %d.\r\n", g_display_height);
+	return fd_fb_display;
 }
 
 void SaveEncMbInfo(u8 *mbParaBuf, int size, int MbNumX, int EncNum)
@@ -241,6 +534,39 @@ enc_readbs_ring_buffer(EncHandle handle, struct cmd_line *cmd,
 	return space;
 }
 
+/*********************************************************/
+char spsbuff[15];
+char ppsbuff[10];
+uint8_t fillheader = 0;
+/* h.264 bitstreams */
+extern uint32_t timestamp;
+static int encoder_fill_headers_frequence(struct encode *enc)
+{
+	EncHeaderParam enchdr_param = {0};
+	EncHandle handle = enc->handle;
+	RetCode ret;
+	int mbPicNum;
+
+	/* Must put encode header before encoding */
+	if (enc->cmdl->format == STD_MPEG4)
+	{
+	}
+	else if (enc->cmdl->format == STD_AVC)
+	{
+		fillheader = 1;
+		timestamp -= 3600;
+		ret = vpu_write(enc->cmdl, spsbuff, 13);
+		fillheader = 1;
+		timestamp -= 3600;
+		ret = vpu_write(enc->cmdl, ppsbuff, 9);
+	}
+	else if (enc->cmdl->format == STD_MJPG)
+	{
+	}
+
+	return 0;
+}
+
 static int encoder_fill_headers(struct encode *enc)
 {
 	EncHeaderParam enchdr_param = {0};
@@ -310,20 +636,31 @@ static int encoder_fill_headers(struct encode *enc)
 	}
 	else if (enc->cmdl->format == STD_AVC)
 	{
+		info_msg("VAo cho fill header---std avc--------------------------\r\n");
+		fillheader = 1;
 		if (!enc->mvc_extension || !enc->mvc_paraset_refresh_en)
 		{
+			// info_msg("VAo cho fill header---std avc------111-\r\n");
 			enchdr_param.headerType = SPS_RBSP;
 			vpu_EncGiveCommand(handle, ENC_PUT_AVC_HEADER, &enchdr_param);
 			if (enc->ringBufferEnable == 0)
 			{
 				ret = enc_readbs_reset_buffer(enc, enchdr_param.buf, enchdr_param.size);
+				uint32_t vbuf = enc->virt_bsbuf_addr + enchdr_param.buf - enc->phy_bsbuf_addr;
+				memcpy(spsbuff, vbuf, enchdr_param.size);
+				for (int i = 0; i < enchdr_param.size; i++)
+				{
+					printf("%02x - ", spsbuff[i]);
+				}
+				printf("size of sps %d \r\n", enchdr_param.size);
 				if (ret < 0)
 					return -1;
 			}
 		}
-
+		fillheader = 1;
 		if (enc->mvc_extension)
 		{
+			// info_msg("VAo cho fill header---std avc-------222--\r\n");
 			enchdr_param.headerType = SPS_RBSP_MVC;
 			vpu_EncGiveCommand(handle, ENC_PUT_AVC_HEADER, &enchdr_param);
 			if (enc->ringBufferEnable == 0)
@@ -333,18 +670,27 @@ static int encoder_fill_headers(struct encode *enc)
 					return -1;
 			}
 		}
-
+		fillheader = 1;
 		enchdr_param.headerType = PPS_RBSP;
 		vpu_EncGiveCommand(handle, ENC_PUT_AVC_HEADER, &enchdr_param);
 		if (enc->ringBufferEnable == 0)
 		{
+			// info_msg("VAo cho fill header---std avc-------333--\r\n");
 			ret = enc_readbs_reset_buffer(enc, enchdr_param.buf, enchdr_param.size);
+			uint32_t vbuf = enc->virt_bsbuf_addr + enchdr_param.buf - enc->phy_bsbuf_addr;
+			memcpy(ppsbuff, vbuf, enchdr_param.size);
+			for (int i = 0; i < enchdr_param.size; i++)
+			{
+				printf("%02x - ", ppsbuff[i]);
+			}
+			printf("size of pps %d \r\n", enchdr_param.size);
 			if (ret < 0)
 				return -1;
 		}
-
+		fillheader = 1;
 		if (enc->mvc_extension)
 		{ /* MVC */
+			// info_msg("VAo cho fill header---std avc-------444--\r\n");
 			enchdr_param.headerType = PPS_RBSP_MVC;
 			vpu_EncGiveCommand(handle, ENC_PUT_AVC_HEADER, &enchdr_param);
 			if (enc->ringBufferEnable == 0)
@@ -665,6 +1011,7 @@ static __inline int dequeue_buf(struct vpu_queue *q)
 	return ret;
 }
 ////....Thread encoder, duoc tao trong ham encoder_start
+
 void encoder_thread(void *arg)
 {
 	struct encode *enc = (struct encode *)arg;
@@ -694,273 +1041,292 @@ void encoder_thread(void *arg)
 	pthread_attr_init(&attr);
 	pthread_attr_setschedpolicy(&attr, SCHED_RR);
 
-	/* Must put encode header here before encoding for all codec, except MX6 MJPG */
-	if (!(cpu_is_mx6x() && (enc->cmdl->format == STD_MJPG)))
+	if (enc->cmdl->dst_scheme == PATH_NET)
 	{
-		ret = encoder_fill_headers(enc);
-		if (ret)
+		/* open udp port for send path */
+		enc->cmdl->dst_fd = udp_open(enc->cmdl);
+		if (enc->cmdl->dst_fd < 0)
 		{
-			err_msg("Encode fill headers failed\n");
-			goto err3;
+			//if (enc->cmdl->src_scheme == PATH_NET)
+				close(enc->cmdl->src_fd);
 		}
+
+		info_msg("encoder sending on port %d\n", enc->cmdl->port);
 	}
 
-	enc_param.sourceFrame = &enc->fb[src_fbid];
-	enc_param.quantParam = 23;
-	enc_param.forceIPicture = 0;
-	enc_param.skipPicture = 0;
-	enc_param.enableAutoSkip = 1;
-
-	enc_param.encLeftOffset = 0;
-	enc_param.encTopOffset = 0;
-	if ((enc_param.encLeftOffset + enc->enc_picwidth) > enc->src_picwidth)
-	{
-		err_msg("Configure is failure for width and left offset\n");
-		goto err3;
-	}
-	if ((enc_param.encTopOffset + enc->enc_picheight) > enc->src_picheight)
-	{
-		err_msg("Configure is failure for height and top offset\n");
-		goto err3;
-	}
-
-	/* Set report info flag */
-	if (enc->mbInfo.enable)
-	{
-		ret = vpu_EncGiveCommand(handle, ENC_SET_REPORT_MBINFO, &enc->mbInfo);
-		if (ret != RETCODE_SUCCESS)
-		{
-			err_msg("Failed to set MbInfo report, ret %d\n", ret);
-			goto err3;
-		}
-	}
-	if (enc->mvInfo.enable)
-	{
-		ret = vpu_EncGiveCommand(handle, ENC_SET_REPORT_MVINFO, &enc->mvInfo);
-		if (ret != RETCODE_SUCCESS)
-		{
-			err_msg("Failed to set MvInfo report, ret %d\n", ret);
-			goto err3;
-		}
-	}
-	if (enc->sliceInfo.enable)
-	{
-		ret = vpu_EncGiveCommand(handle, ENC_SET_REPORT_SLICEINFO, &enc->sliceInfo);
-		if (ret != RETCODE_SUCCESS)
-		{
-			err_msg("Failed to set slice info report, ret %d\n", ret);
-			goto err3;
-		}
-	}
-	if (src_scheme == PATH_V4L2)
-	{
-		vpu_running = 1;
-		img_size = enc->src_picwidth * enc->src_picheight; ////..set kich thuoc image
-	}
-	else
-	{
-		img_size = enc->src_picwidth * enc->src_picheight * 3 / 2;
-		if (enc->cmdl->format == STD_MJPG)
-		{
-			if (enc->mjpg_fmt == MODE422 || enc->mjpg_fmt == MODE224)
-				img_size = enc->src_picwidth * enc->src_picheight * 2;
-			else if (enc->mjpg_fmt == MODE400)
-				img_size = enc->src_picwidth * enc->src_picheight;
-		}
-	}
-
-	gettimeofday(&total_start, NULL);
-	/****-----debug----------------------***********/
-	image_sizeabc = img_size;
-	if ((enc->cmdl->format == STD_MJPG) && (enc->mjpg_fmt == MODE422 || enc->mjpg_fmt == MODE224))
-		printf("Debug: enc_thread: std_mjpg && (mode 422 orr mode 224)..%d\r\n", image_sizeabc);
-	else
-	{
-		printf("Debug: enc_thread: NO std_mjpg && (mode 422 orr mode 224)..%d\r\n", image_sizeabc);
-		////. luon la truong hop nay
-	}
-	image_thread_wait = 1;
-	/******** ..............end debug............. *******/
-	/* The main encoding loop */
+	char file_name[60];
+	time_t t = time(NULL);
+	struct tm tm;
+	int min_old=0;
+	// t = time(NULL);
+	// tm = *localtime(&t);
+	sprintf(file_name, "/home/root/mount/cam%d", device_video);
+	mkdir(file_name,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 	while (1)
 	{
-		if (src_scheme == PATH_V4L2)
-		{								 ///.. truong hop doc tu camera
-			index = dequeue_buf(&vpu_q); ///-- lay vi tri buffer trong queue
-			if (index < 0)
-			{
-				wait_queue(); ///-- doi queue neu chua co
-				vpu_waiting = 0;
-				index = dequeue_buf(&vpu_q);
-				if (index < 0)
-				{
-					printf("thread is going to finish\n");
-					quitflag = 1;
-					break;
-				}
-			}
-			//			gettimeofday(&tv_start, 0);  //qiang_debug added
-			fb[src_fbid].myIndex = enc->src_fbid + index;
-			fb[src_fbid].bufY = cap_buffers[index].offset;
-			fb[src_fbid].bufCb = fb[src_fbid].bufY + img_size;
-			if ((enc->cmdl->format == STD_MJPG) &&
-				(enc->mjpg_fmt == MODE422 || enc->mjpg_fmt == MODE224))
-			{
-				fb[src_fbid].bufCr = fb[src_fbid].bufCb + (img_size >> 1);
-				//printf("...");
-			}
-			else
-			{
-				fb[src_fbid].bufCr = fb[src_fbid].bufCb + (img_size >> 2);
-				//cai naynhe
-				//printf("***");
-			}
-			fb[src_fbid].strideY = enc->src_picwidth;
-			fb[src_fbid].strideC = enc->src_picwidth / 2;
-
-			// if (image_thread_wait == 0)
-			// {
-			// 	//printf("DEBUG: %d.....%d..%d\r\n", fb[src_fbid].bufY, fb[src_fbid].bufCb, fb[src_fbid].bufCr);
-			// 	// printf("DEBUG: %d.....%d--%d\r\n", cap_buffers[index].offset, cap_buffers[index].length, cap_buffers[index].start);
-			// 	memcpy(buff_Y, &(cap_buffers[index].start[0]), img_size);
-			// memcpy(buff_CrCb, &(cap_buffers[index].start[img_size]), img_size / 2);
-				
-			// 	image_thread_wait = 1;
-			// }
-
+		t = time(NULL);
+		tm = *localtime(&t);
+		memset(file_name, 0, 60);
+		min_old = tm.tm_min;
+		
+		sprintf(file_name, "/home/root/mount/cam%d/cam%d_%04d%02d%02d_%02d%02d.h264", device_video, device_video, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
+		enc->cmdl->dst_fd_file = open(file_name, O_CREAT | O_RDWR | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
+		if (enc->cmdl->dst_fd_file < 0)
+		{
+			printf("Open File Fail.\r\n");			
+			break;
 		}
 		else
 		{
-			ret = read_from_file(enc);
-			if (ret <= 0)
-				break;
-			//			gettimeofday(&tv_start, 0);  //qiang_debug added
+			printf("Open File Success. Save new File: %s\r\n", file_name);
 		}
 
-		/* Must put encode header before each frame encoding for mx6 MJPG */
-		if (cpu_is_mx6x() && (enc->cmdl->format == STD_MJPG))
+		/* Must put encode header here before encoding for all codec, except MX6 MJPG */
+		if (!(cpu_is_mx6x() && (enc->cmdl->format == STD_MJPG)))
 		{
 			ret = encoder_fill_headers(enc);
 			if (ret)
 			{
 				err_msg("Encode fill headers failed\n");
-				quitflag = 1;
-				goto err2;
+				goto err3;
 			}
 		}
 
-		gettimeofday(&tenc_begin, NULL);
-		ret = vpu_EncStartOneFrame(handle, &enc_param); ////.. start picture encoder
-		if (ret != RETCODE_SUCCESS)
+		enc_param.sourceFrame = &enc->fb[src_fbid];
+		enc_param.quantParam =30;//23;
+		enc_param.forceIPicture = 0;
+		enc_param.skipPicture = 0;
+		enc_param.enableAutoSkip = 1;
+
+		enc_param.encLeftOffset = 0;
+		enc_param.encTopOffset = 0;
+		if ((enc_param.encLeftOffset + enc->enc_picwidth) > enc->src_picwidth)
 		{
-			err_msg("vpu_EncStartOneFrame failed Err code:%d\n",
-					ret);
-			quitflag = 1;
-			goto err2;
+			err_msg("Configure is failure for width and left offset\n");
+			goto err3;
+		}
+		if ((enc_param.encTopOffset + enc->enc_picheight) > enc->src_picheight)
+		{
+			err_msg("Configure is failure for height and top offset\n");
+			goto err3;
 		}
 
-		loop_id = 0;
-		////.. wait the completion of picture encode operator
-		while (vpu_IsBusy())
+		/* Set report info flag */
+		if (enc->mbInfo.enable)
 		{
-			vpu_WaitForInt(200);
-			if (enc->ringBufferEnable == 1)
+			info_msg("mbbb...info.enable....1111\r\n");
+			ret = vpu_EncGiveCommand(handle, ENC_SET_REPORT_MBINFO, &enc->mbInfo);
+			if (ret != RETCODE_SUCCESS)
 			{
-				ret = enc_readbs_ring_buffer(handle, enc->cmdl,
-											 virt_bsbuf_start, virt_bsbuf_end,
-											 phy_bsbuf_start, STREAM_READ_SIZE);
-				if (ret < 0)
+				err_msg("Failed to set MbInfo report, ret %d\n", ret);
+				goto err3;
+			}
+		}
+		if (enc->mvInfo.enable)
+		{
+			info_msg("mvvvvv...info.enable....222\r\n");
+			ret = vpu_EncGiveCommand(handle, ENC_SET_REPORT_MVINFO, &enc->mvInfo);
+			if (ret != RETCODE_SUCCESS)
+			{
+				err_msg("Failed to set MvInfo report, ret %d\n", ret);
+				goto err3;
+			}
+		}
+		if (enc->sliceInfo.enable)
+		{
+			info_msg("slice...info.enable....3333\r\n");
+			ret = vpu_EncGiveCommand(handle, ENC_SET_REPORT_SLICEINFO, &enc->sliceInfo);
+			if (ret != RETCODE_SUCCESS)
+			{
+				err_msg("Failed to set slice info report, ret %d\n", ret);
+				goto err3;
+			}
+		}
+		if (src_scheme == PATH_V4L2)
+		{
+			vpu_running = 1;
+			img_size = enc->src_picwidth * enc->src_picheight; ////..set kich thuoc image
+		}
+		else
+		{
+			img_size = enc->src_picwidth * enc->src_picheight * 3 / 2;
+			if (enc->cmdl->format == STD_MJPG)
+			{
+				if (enc->mjpg_fmt == MODE422 || enc->mjpg_fmt == MODE224)
+					img_size = enc->src_picwidth * enc->src_picheight * 2;
+				else if (enc->mjpg_fmt == MODE400)
+					img_size = enc->src_picwidth * enc->src_picheight;
+			}
+		}
+
+		gettimeofday(&total_start, NULL);
+		image_sizeabc = img_size;
+
+		/* The main encoding loop */
+		frame_id = 0;
+		enc_param.forceIPicture = 1;
+		while (1)
+		{
+			if ((frame_id % GOP_SIZE) == (GOP_SIZE-1))
+			{
+				encoder_fill_headers_frequence(enc);
+			}
+			if (src_scheme == PATH_V4L2)
+			{								 ///.. truong hop doc tu camera
+				index = dequeue_buf(&vpu_q); ///-- lay vi tri buffer trong queue
+				if (index < 0)
 				{
+					wait_queue(); ///-- doi queue neu chua co
+					vpu_waiting = 0;
+					index = dequeue_buf(&vpu_q);
+					if (index < 0)
+					{
+						printf("thread is going to finish\n");
+						quitflag = 1;
+						break;
+					}
+				}
+
+				fb[src_fbid].myIndex = enc->src_fbid + index;
+				fb[src_fbid].bufY = cap_buffers[index].offset;
+				fb[src_fbid].bufCb = fb[src_fbid].bufY + img_size;
+				fb[src_fbid].bufCr = fb[src_fbid].bufCb + (img_size >> 2);
+				fb[src_fbid].strideY = enc->src_picwidth;
+				fb[src_fbid].strideC = enc->src_picwidth / 2;
+			}
+			else
+			{
+				ret = read_from_file(enc);
+				if (ret <= 0)
+					break;
+			}
+
+			/* Must put encode header before each frame encoding for mx6 MJPG */
+			if (cpu_is_mx6x() && (enc->cmdl->format == STD_MJPG))
+			{
+				ret = encoder_fill_headers(enc);
+				if (ret)
+				{
+					err_msg("Encode fill headers failed\n");
 					quitflag = 1;
 					goto err2;
 				}
 			}
-			if (loop_id == 20)
+
+			gettimeofday(&tenc_begin, NULL);
+			ret = vpu_EncStartOneFrame(handle, &enc_param); ////.. start picture encoder
+			if (ret != RETCODE_SUCCESS)
 			{
-				ret = vpu_SWReset(handle, 0);
+				err_msg("vpu_EncStartOneFrame failed Err code:%d\n",
+						ret);
 				quitflag = 1;
-			}
-			loop_id++;
-		}
-
-		// gettimeofday(&tenc_end, NULL);
-		// sec = tenc_end.tv_sec - tenc_begin.tv_sec;
-		// usec = tenc_end.tv_usec - tenc_begin.tv_usec;
-		// if (usec < 0) {
-		// 	sec--;
-		// 	usec = usec + 1000000;
-		// }
-		// tenc_time += (sec * 1000000) + usec;
-
-		////..After encoding a frame is complete, check the results of encoder operation
-		ret = vpu_EncGetOutputInfo(handle, &outinfo);
-		if (ret != RETCODE_SUCCESS)
-		{
-			err_msg("vpu_EncGetOutputInfo failed Err code: %d\n",
-					ret);
-			quitflag = 1;
-			goto err2;
-		}
-
-		if (outinfo.skipEncoded)
-			info_msg("Skip encoding one Frame!\n");
-
-		if (outinfo.mbInfo.enable && outinfo.mbInfo.size && outinfo.mbInfo.addr)
-		{
-			SaveEncMbInfo(outinfo.mbInfo.addr, outinfo.mbInfo.size,
-						  encop.picWidth / 16, frame_id);
-		}
-
-		if (outinfo.mvInfo.enable && outinfo.mvInfo.size && outinfo.mvInfo.addr)
-		{
-			SaveEncMvInfo(outinfo.mvInfo.addr, outinfo.mvInfo.size,
-						  encop.picWidth / 16, frame_id);
-		}
-
-		if (outinfo.sliceInfo.enable && outinfo.sliceInfo.size &&
-			outinfo.sliceInfo.addr)
-		{
-			SaveEncSliceInfo(outinfo.sliceInfo.addr,
-							 outinfo.sliceInfo.size, frame_id);
-		}
-
-		//qiang_debug add start
-		/*
-		gettimeofday(&tv_current, 0);
-		debug_time = (tv_current.tv_sec - tv_start.tv_sec) * 1000000L;
-		debug_time += tv_current.tv_usec - tv_start.tv_usec;
-		printf("vpu time = %u us\n", debug_time);
-*/
-		//qiang_debug add end
-
-		if (quitflag)
-			break;
-
-		//		gettimeofday(&tv_start, 0);  //qiang_debug added
-		if (enc->ringBufferEnable == 0)
-		{
-			ret = enc_readbs_reset_buffer(enc, outinfo.bitstreamBuffer, outinfo.bitstreamSize);
-			if (ret < 0)
-			{
-				err_msg("writing bitstream buffer failed\n");
 				goto err2;
 			}
-		}
-		else
-			enc_readbs_ring_buffer(handle, enc->cmdl, virt_bsbuf_start,
-								   virt_bsbuf_end, phy_bsbuf_start, 0);
-		//qiang_debug add start
-		/*
-		gettimeofday(&tv_current, 0);
-		debug_time = (tv_current.tv_sec - tv_start.tv_sec) * 1000000L;
-		debug_time += tv_current.tv_usec - tv_start.tv_usec;
-		printf("file write time = %u us\n", debug_time);
-*/
-		//qiang_debug add end
 
-		frame_id++;
-		if ((count != 0) && (frame_id >= count))
+			loop_id = 0;
+			////.. wait the completion of picture encode operator
+			while (vpu_IsBusy())
+			{
+				vpu_WaitForInt(200);
+				if (enc->ringBufferEnable == 1)
+				{
+					ret = enc_readbs_ring_buffer(handle, enc->cmdl,
+												 virt_bsbuf_start, virt_bsbuf_end,
+												 phy_bsbuf_start, STREAM_READ_SIZE);
+					if (ret < 0)
+					{
+						quitflag = 1;
+						goto err2;
+					}
+				}
+				if (loop_id == 20)
+				{
+					ret = vpu_SWReset(handle, 0);
+					quitflag = 1;
+				}
+				loop_id++;
+			}
+
+			////..After encoding a frame is complete, check the results of encoder operation
+			ret = vpu_EncGetOutputInfo(handle, &outinfo);
+			if (ret != RETCODE_SUCCESS)
+			{
+				err_msg("vpu_EncGetOutputInfo failed Err code: %d\n",
+						ret);
+				quitflag = 1;
+				goto err2;
+			}
+
+			// if (outinfo.picType == 0)
+			// {
+			// 	info_msg("I picture _frameId: %d\r\n", frame_id);
+			// }
+
+			if (outinfo.skipEncoded)
+				info_msg("Skip encoding one Frame!\n");
+
+			if (outinfo.mbInfo.enable && outinfo.mbInfo.size && outinfo.mbInfo.addr)
+			{
+				// printf("...\r\n");	////khong co
+				SaveEncMbInfo(outinfo.mbInfo.addr, outinfo.mbInfo.size,
+							  encop.picWidth / 16, frame_id);
+			}
+
+			if (outinfo.mvInfo.enable && outinfo.mvInfo.size && outinfo.mvInfo.addr)
+			{
+				// printf("***\r\n");	////khong co
+				SaveEncMvInfo(outinfo.mvInfo.addr, outinfo.mvInfo.size,
+							  encop.picWidth / 16, frame_id);
+			}
+
+			if (outinfo.sliceInfo.enable && outinfo.sliceInfo.size &&
+				outinfo.sliceInfo.addr)
+			{
+				// printf("---\r\n");	////khong co
+				SaveEncSliceInfo(outinfo.sliceInfo.addr,
+								 outinfo.sliceInfo.size, frame_id);
+			}
+
+			if (quitflag)
+				break;
+
+			//		gettimeofday(&tv_start, 0);  //qiang_debug added
+			if (enc->ringBufferEnable == 0)
+			{
+				//printf("...\r\n");  ///------ vao truonwg hop nay
+
+				ret = enc_readbs_reset_buffer(enc, outinfo.bitstreamBuffer, outinfo.bitstreamSize);
+				if (ret < 0)
+				{
+					err_msg("writing bitstream buffer failed\n");
+					goto err2;
+				}
+			}
+			else
+			{
+				enc_readbs_ring_buffer(handle, enc->cmdl, virt_bsbuf_start, virt_bsbuf_end, phy_bsbuf_start, 0);
+				//printf("***\r\n");
+			}
+			frame_id++;
+			enc_param.forceIPicture = 0;
+			t = time(NULL);
+			tm = *localtime(&t);
+			if (((frame_id%GOP_SIZE)==0) && (tm.tm_min!=min_old))
+			{
+				break;
+			}
+			// if ((count != 0) && (frame_id >= count)){
+			// 	quitflag =1;
+			// 	break;
+			// }
+		}
+		close(enc->cmdl->dst_scheme_file);
+		enc->cmdl->dst_scheme_file = -1;
+		nanosleep((const struct timespec[]){{0, 1000000L}}, NULL);
+		if (quitflag){
+			close(enc->cmdl->dst_scheme_file);
 			break;
+		}
 	}
 
 	gettimeofday(&total_end, NULL);
@@ -1021,113 +1387,174 @@ err3:
 }
 
 extern int device_video;
-
-void image_thread(void *arg)
+#define SAVE_IMAGE 0
+void image_thread(void) // *arg)
 {
+	printf("Debug: image thread....\r\n");
+	pthread_attr_t attr;
+
+	pthread_attr_init(&attr);
+	pthread_attr_setschedpolicy(&attr, SCHED_RR);
+#if SAVE_IMAGE
 	char image_ppm[30];
 	char img_jpg[30];
 	FILE *fout;
 	int count = 0;
 	time_t t = time(NULL);
 	struct tm tm;
-	printf("Debug: image thread....\r\n");
+
 	int Y0, Y1, Cb, Cr;				  /* gamma pre-corrected input [0;255] */
 	int ER0, ER1, EG0, EG1, EB0, EB1; /* output [0;255] */
 	double r0, r1, g0, g1, b0, b1;	  /* temporaries */
 	double y0, y1, pb, pr;
-	
+#endif
+	int index;
+
+	///g_display_left, g_display_top, g_display_width, g_display_height
+	// g_display_width = 960;
+	// g_display_height = 540;
+	g_display_width = screen_width/2;
+	g_display_height = screen_height/2;
+	g_in_width = 1280;
+	g_in_height = 720;
+	g_g2d_fmt = G2D_NV12;
+	switch (device_video)
+	{
+	case 0:
+		g_display_left = 0;
+		g_display_top = 0;
+		break;
+	case 1:
+		g_display_left = g_display_width;
+		g_display_top = 0;
+		break;
+	case 2:
+		g_display_left = 0;
+		g_display_top = g_display_height;
+		break;
+	case 3:
+		g_display_left = g_display_width;
+		g_display_top = g_display_height;
+		break;
+	default:
+		break;
+	}
+
 	while (1)
 	{
-		memset(buff_Y, 0, image_sizeabc);
-		image_thread_wait = 0;
-		usleep(100000);
-		count++;
-		if (count == 100)
+		index = dequeue_dp_buf(&display_q); ///-- lay vi tri buffer trong queue
+		if (index < 0)
 		{
-			count = 0;
-			t = time(NULL);
-			tm = *localtime(&t);
-			sprintf(image_ppm, "image_%04d%02d%02d_%02d%02d%02d.ppm", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-			//sprintf(image_ppm, "video%d_%03d.ppm", device_video, i);
-			//sprintf(image_ppm, "out%03d.pgmyuv", i);
-			fout = fopen(image_ppm, "w");
-			if (!fout)
+			wait_dp_queue(); ///-- doi queue neu chua co
+			display_waiting = 0;
+			index = dequeue_dp_buf(&display_q);
+			if (index < 0)
 			{
-				perror("Cannot open image");
-				exit(EXIT_FAILURE);
+				printf("thread is going to finish\n");
+				quitflag = 1;
+				goto image_thread_exit;
+				break;
 			}
-			fprintf(fout, "P6\n%d %d 255\n", 1280, 720);
-			int ii = 0;
-			
-			printf("\r\n");
-			ii=0;
-			for (int iii = 0; iii < 720; iii++)
-			{
-				int iii_temp = iii/2;
-				for (int jjj = 0; jjj < 1280/2; jjj++)
-				{
-					int C_temp = 2*jjj + 1280*(iii_temp);
-					int Y_temp = 2*jjj + 1280*iii;
-					Y0 = (char)(buff_Y[Y_temp]);// & 0xFF);
-					Y1 = (char)(buff_Y[Y_temp+1]);// & 0xFF);
-					Cb = (char)(buff_CrCb[C_temp]);// & 0xFF);
-					Cr = (char)(buff_CrCb[C_temp+1]);// & 0xFF);
-					
-
-					// Strip sign values after shift (i.e. unsigned shift)
-					Y0 = Y0 & 0xFF;
-					Cb = (Cb) & 0xFF;
-					Y1 = Y1 & 0xFF;
-					Cr = (Cr) & 0xFF;
-
-					//fprintf( fp, "Value:%x Y0:%x Cb:%x Y1:%x Cr:%x ",packed_value,Y0,Cb,Y1,Cr);
-					y0 = (255.0 / 219.0) * (Y0 - 16);
-					y1 = (255.0 / 219.0) * (Y1 - 16);
-					pb = (255.0 / 224.0) * (Cb - 128);
-					pr = (255.0 / 224.0) * (Cr - 128);
-
-					// B = 1.164(Y - 16)                   + 2.018(U - 128)
-					// G = 1.164(Y - 16) - 0.813(V - 128) - 0.391(U - 128)
-					// R = 1.164(Y - 16) + 1.596(V - 128)
-
-					// Generate first pixel
-					r0 = y0 + 		1.402 * pr;
-					g0 = y0 - 0.344 * pb - 0.714 * pr;
-					b0 = y0 + 1.772 * pb	;
-
-					// Generate next pixel - must reuse pb & pr as 4:2:2
-					r1 = y1 +		1.402 * pr;
-					g1 = y1 - 0.344 * pb - 0.714 * pr;
-					b1 = y1 + 1.772 * pb 	;
-
-					ER0 = clamp(r0);
-					ER1 = clamp(r1);
-					EG0 = clamp(g0);
-					EG1 = clamp(g1);
-					EB0 = clamp(b0);
-					EB1 = clamp(b1);
-					fprintf(fout, "%c%c%c%c%c%c", ER0, EG0, EB0, ER1, EG1, EB1); // Output two pixels
-					//fprintf( fp, "Memory:%p Pixel:%d R:%d G:%d B:%d     Pixel:%d R:%d G:%d B:%d \n",location,val,ER0,EG0,EB0,(val+1),ER1,EG1,EB1);
-					ii++;
-				}
-			}
-
-
-			fclose(fout);
-
-			int width, height, channels;
-			unsigned char *imgabc = stbi_load(image_ppm, &width, &height, &channels, 0);
-			printf("Loaded image with a width of %dpx, a height of %dpx and %d channels\n", width, height, channels);
-			sprintf(img_jpg, "imagejpg_%04d%02d%02d_%02d%02d%02d.jpg", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-
-			stbi_write_jpg(img_jpg, width, height, channels, imgabc, 100);
-			//remove(image_ppm);
 		}
+
+		// draw_image_to_framebuffer_tvin(g2d_buffers[index], g_in_width, g_in_height, g_g2d_fmt, &g_screen_info, g_display_left, g_display_top, g_display_width, g_display_height, 0, G2D_ROTATION_0);
+		draw_image_to_framebuffer(g2d_buffers[index], g_in_width, g_in_height, g_g2d_fmt, &g_screen_info, g_display_left, g_display_top, g_display_width, g_display_height, 0, G2D_ROTATION_0 , g_display_base_phy);
+	
+#if SAVE_IMAGE
+		// image_thread_wait = 0;
+		// // usleep(100000);
+		// nanosleep((const struct timespec[]){{0, 10000000L}}, NULL);
+		// count++;
+		// if (count == 500)
+		// {
+		// 	count = 0;
+		// 	t = time(NULL);
+		// 	tm = *localtime(&t);
+		// 	sprintf(image_ppm, "image_%04d%02d%02d_%02d%02d%02d.ppm", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+		// 	//sprintf(image_ppm, "video%d_%03d.ppm", device_video, i);
+		// 	//sprintf(image_ppm, "out%03d.pgmyuv", i);
+		// 	fout = fopen(image_ppm, "w");
+		// 	if (!fout)
+		// 	{
+		// 		perror("Cannot open image");
+		// 		exit(EXIT_FAILURE);
+		// 	}
+		// 	fprintf(fout, "P6\n%d %d 255\n", 1280, 720);
+		// 	int ii = 0;
+
+		// 	printf("\r\n");
+		// 	ii=0;
+		// 	for (int iii = 0; iii < 720; iii++)
+		// 	{
+		// 		int iii_temp = iii/2;
+		// 		for (int jjj = 0; jjj < 1280/2; jjj++)
+		// 		{
+		// 			int C_temp = 2*jjj + 1280*(iii_temp);
+		// 			int Y_temp = 2*jjj + 1280*iii;
+		// 			Y0 = (char)(buff_Y[Y_temp]);// & 0xFF);
+		// 			Y1 = (char)(buff_Y[Y_temp+1]);// & 0xFF);
+		// 			Cb = (char)(buff_CrCb[C_temp]);// & 0xFF);
+		// 			Cr = (char)(buff_CrCb[C_temp+1]);// & 0xFF);
+
+		// 			// Strip sign values after shift (i.e. unsigned shift)
+		// 			Y0 = Y0 & 0xFF;
+		// 			Cb = (Cb) & 0xFF;
+		// 			Y1 = Y1 & 0xFF;
+		// 			Cr = (Cr) & 0xFF;
+
+		// 			//fprintf( fp, "Value:%x Y0:%x Cb:%x Y1:%x Cr:%x ",packed_value,Y0,Cb,Y1,Cr);
+		// 			y0 = (255.0 / 219.0) * (Y0 - 16);
+		// 			y1 = (255.0 / 219.0) * (Y1 - 16);
+		// 			pb = (255.0 / 224.0) * (Cb - 128);
+		// 			pr = (255.0 / 224.0) * (Cr - 128);
+
+		// 			// B = 1.164(Y - 16)                   + 2.018(U - 128)
+		// 			// G = 1.164(Y - 16) - 0.813(V - 128) - 0.391(U - 128)
+		// 			// R = 1.164(Y - 16) + 1.596(V - 128)
+
+		// 			// Generate first pixel
+		// 			r0 = y0 + 		1.402 * pr;
+		// 			g0 = y0 - 0.344 * pb - 0.714 * pr;
+		// 			b0 = y0 + 1.772 * pb	;
+
+		// 			// Generate next pixel - must reuse pb & pr as 4:2:2
+		// 			r1 = y1 +		1.402 * pr;
+		// 			g1 = y1 - 0.344 * pb - 0.714 * pr;
+		// 			b1 = y1 + 1.772 * pb 	;
+
+		// 			ER0 = clamp(r0);
+		// 			ER1 = clamp(r1);
+		// 			EG0 = clamp(g0);
+		// 			EG1 = clamp(g1);
+		// 			EB0 = clamp(b0);
+		// 			EB1 = clamp(b1);
+		// 			fprintf(fout, "%c%c%c%c%c%c", ER0, EG0, EB0, ER1, EG1, EB1); // Output two pixels
+		// 			//fprintf( fp, "Memory:%p Pixel:%d R:%d G:%d B:%d     Pixel:%d R:%d G:%d B:%d \n",location,val,ER0,EG0,EB0,(val+1),ER1,EG1,EB1);
+		// 			ii++;
+		// 		}
+		// 	}
+
+		// 	fclose(fout);
+
+		// 	int width, height, channels;
+		// 	unsigned char *imgabc = stbi_load(image_ppm, &width, &height, &channels, 0);
+		// 	printf("Loaded image with a width of %dpx, a height of %dpx and %d channels\n", width, height, channels);
+		// 	sprintf(img_jpg, "imagejpg_%04d%02d%02d_%02d%02d%02d.jpg", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+		// 	stbi_write_jpg(img_jpg, width, height, channels, imgabc, 100);
+		// 	//remove(image_ppm);
+		// }
+#endif
+
 		if (quitflag)
 		{
-			break;
+			goto image_thread_exit;
 		}
 	}
+image_thread_exit:	
+	pthread_attr_destroy(&attr);
+
+	pthread_exit(0);
 }
 ////goi trong ham encoder test
 static int encoder_start(struct encode *enc)
@@ -1140,6 +1567,8 @@ static int encoder_start(struct encode *enc)
 	int index, frame_id = 0;
 	RetCode ret = 0;
 
+	/***************************************/
+	
 	pthread_mutex_init(&vpu_mutex, NULL);
 	pthread_cond_init(&vpu_cond, NULL);
 
@@ -1152,9 +1581,8 @@ static int encoder_start(struct encode *enc)
 	}
 
 	sleep(1);
-
 	pthread_create(&image_thread_id, NULL, (void *)image_thread, NULL);
-	int img_size = 1280*720;
+	int img_size = 1280 * 720;
 
 	if (src_scheme == PATH_V4L2)
 	{
@@ -1167,10 +1595,9 @@ static int encoder_start(struct encode *enc)
 		//// thread lay du lieu buffer v4l2
 		while (1)
 		{
-			count_db1++;
-			if ((count_db1 % 250) == 0)
+			if ((frame_id % 1000) == 0)
 			{
-				printf("DEBUG:..while1 trong encoder start- lay du lieu v4l2_buff: %u\r\n", sizeof(v4l2_buf));
+				printf("DEBUG:..encoder start camera: %d - so frame: %d\r\n", device_video, frame_id);
 			}
 
 			ret = v4l_get_capture_data(&v4l2_buf); ////.... lay du lieu capture tu camera dung ioctl
@@ -1188,21 +1615,32 @@ static int encoder_start(struct encode *enc)
 				memcpy(buff_CrCb, &(cap_buffers[index].start[img_size]), img_size / 2);
 				image_thread_wait = 1;
 			}
-			queue_buf(&vpu_q, index);		 ////..dua v4l2_buff.index vao list cua queue vpu_q
-			wakeup_queue();					 //// mo khoa hang doi queue dung signal
+
+			if ((index%4)!=3){				////..bo frame, giam size
+				queue_buf(&vpu_q, index); 	////..dua v4l2_buff.index vao list cua queue vpu_q
+				wakeup_queue();				//// mo khoa hang doi queue dung signal
+			}
+			// /////---------------------
+			queue_dp_buf(&display_q, index); ////..dua v4l2_buff.index vao list cua queue vpu_q
+			wakeup_dp_queue();				 //// mo khoa hang doi queue dung signal
+
 			v4l_put_capture_data(&v4l2_buf); ////.. ioctl VIDIOC_QBUF
-			g2d_render_capture_data(index);
+			
+			// g2d_render_capture_data(index);
 
 			if (quitflag)
 				break;
 
 			frame_id++;
-			if ((count != 0) && (frame_id >= count))
-				break;
+			// if ((count != 0) && (frame_id >= count))
+			// 	break;
 		}
 
 		while (vpu_running && ((queue_size(&vpu_q) > 0) || !vpu_waiting))
-			usleep(10000);
+		{
+			// usleep(10000);
+			nanosleep((const struct timespec[]){{0, 10000000L}}, NULL);
+		}
 		if (vpu_running)
 		{
 			wakeup_queue();
@@ -1214,6 +1652,10 @@ static int encoder_start(struct encode *enc)
 	pthread_mutex_destroy(&vpu_mutex);
 	pthread_cond_destroy(&vpu_cond);
 
+	pthread_join(image_thread_id, NULL);
+	pthread_mutex_destroy(&display_mutex);
+	pthread_cond_destroy(&display_cond);
+
 err2:
 	if (src_scheme == PATH_V4L2)
 	{
@@ -1223,7 +1665,7 @@ err2:
 	/* For automation of test case */
 	if (ret > 0)
 		ret = 0;
-
+	printf("DEBUG:.FINISH camera: %d - so frame: %d\r\n", device_video, frame_id);
 	return ret;
 }
 
@@ -1372,14 +1814,15 @@ int encoder_open(struct encode *enc)
 	}
 
 	if (enc->cmdl->fps == 0)
-		enc->cmdl->fps = 30;
+		enc->cmdl->fps = 25;  //30;
 
 	info_msg("Capture/Encode fps will be %d\n", enc->cmdl->fps);
 
 	/*Note: Frame rate cannot be less than 15fps per H.263 spec */
 	encop.frameRateInfo = enc->cmdl->fps;
-	encop.bitRate = enc->cmdl->bitrate;
-	encop.gopSize = enc->cmdl->gop;
+	encop.bitRate = 0;//enc->cmdl->bitrate;
+	//encop.gopSize = enc->cmdl->gop;
+	encop.gopSize = GOP_SIZE;
 	encop.slicemode.sliceMode = 0;	   /* 0: 1 slice per picture; 1: Multiple slices per picture */
 	encop.slicemode.sliceSizeMode = 0; /* 0: silceSize defined by bits; 1: sliceSize defined by MB number*/
 	encop.slicemode.sliceSize = 4000;  /* Size of a slice in bits or MB numbers */
@@ -1412,6 +1855,7 @@ int encoder_open(struct encode *enc)
 
 	if (!cpu_is_mx6x() && enc->cmdl->format == STD_MJPG)
 	{
+		info_msg("encode open: not imx6 && stdmjpg \r\n");
 		qMatTable = calloc(192, 1);
 		if (qMatTable == NULL)
 		{
@@ -1605,6 +2049,7 @@ int encoder_open(struct encode *enc)
 }
 
 ///
+extern int fd_fb;
 int encode_test(void *arg)
 {
 	struct cmd_line *cmdl = (struct cmd_line *)arg;
@@ -1639,7 +2084,7 @@ int encode_test(void *arg)
 	/* sleep some time so that we have time to start the server */
 	if (cmdl->dst_scheme == PATH_NET)
 	{
-		sleep(10);
+		sleep(2);
 	}
 
 	/* allocate memory for must remember stuff */

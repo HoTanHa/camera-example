@@ -210,6 +210,10 @@ struct cmd_line {
 	int display_top;
 	int display_left;
 	int display_fg;
+
+	int dst_scheme_file;
+	int src_fd_file;
+	int dst_fd_file;
 };
 
 struct decode {

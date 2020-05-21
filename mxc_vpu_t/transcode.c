@@ -1053,8 +1053,10 @@ transcode_start(struct decode *dec, struct encode *enc)
 		}
 
 	        delay_ms = getenv("VPU_DECODER_DELAY_MS");
-	        if (delay_ms && strtol(delay_ms, &endptr, 10))
-		        usleep(strtol(delay_ms,&endptr, 10) * 1000);
+	        if (delay_ms && strtol(delay_ms, &endptr, 10)){
+		        // usleep(strtol(delay_ms,&endptr, 10) * 1000);
+				nanosleep((const struct timespec[]){{0, strtol(delay_ms,&endptr, 10) * 1000000L}}, NULL);
+			}
 
 		loop_id = 0;
 		while (vpu_IsBusy()) {

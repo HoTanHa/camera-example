@@ -36,17 +36,16 @@
 struct capture_testbuffer cap_buffers[TEST_BUFFER_NUM];
 ///./
 struct v4l2_requestbuffers req;
-struct capture_testbuffer buffer_img[TEST_BUFFER_NUM];
 
 struct g2d_buf *g2d_buffers[TEST_BUFFER_NUM];
 
 int fd_capture_v4l = 0;
 int fd_display = 0;
 int g_in_fmt = V4L2_PIX_FMT_NV12;
-int g_in_width = 1280;
-int g_in_height = 720;
-int g_frame_size;
-int g_g2d_fmt = G2D_NV12;
+extern int g_in_width;// = 1280;
+extern int g_in_height;// = 720;
+extern int g_frame_size;
+extern int g_g2d_fmt;// = G2D_NV12;
 int g_display_buf_count = 0;
 
 extern int g_display_width;
@@ -102,8 +101,6 @@ int v4l_start_capturing(void)
 	unsigned int i;
 	struct v4l2_buffer buf;
 	enum v4l2_buf_type type;
-	//buffer_img = 
-	//calloc(req.count, sizeof(*buffer_img));
 
 	for (i = 0; i < TEST_BUFFER_NUM; i++) {
 		memset(&buf, 0, sizeof (buf));
@@ -116,13 +113,6 @@ int v4l_start_capturing(void)
 				printf("VIDIOC_QUERYBUF error\n");
 				return -1;
 		}
-
-		// buffer_img[i].length = buf.length;
-		// printf("buf.lengh: %u\r\n", buf.length);
-
-		// buffer_img[i].start = mmap(NULL, buf.length,
-		// 						PROT_READ | PROT_WRITE, MAP_SHARED,
-		// 						fd_capture_v4l, buf.m.offset);
 
 	}
 
@@ -189,12 +179,12 @@ int v4l_capture_setup(struct encode *enc, int width, int height, int fps)
 		return -1;
 	}
 
-	g_display_fg = enc->cmdl->display_fg;
-	g_display_width = enc->cmdl->display_width;
-	g_display_height = enc->cmdl->display_height;
-	g_display_top = enc->cmdl->display_top;
-	g_display_left = enc->cmdl->display_left;
-	g_frame_size = width * height * 2;
+	g_display_fg = 1; //enc->cmdl->display_fg;
+	g_display_width = 960;//enc->cmdl->display_width;
+	g_display_height = 540;//enc->cmdl->display_height;
+	g_display_top = 0;//enc->cmdl->display_top;
+	g_display_left = 0;//enc->cmdl->display_left;
+	g_frame_size =1280*720*2;// width * height * 2;
 	printf("v4l_capture_setup: display fg = %d, left = %d, top = %d, width = %d, height = %d.\r\n", g_display_fg, g_display_left, g_display_top, g_display_width, g_display_height);
 
 	sprintf(node, "%d", enc->cmdl->video_node_capture);
@@ -202,7 +192,7 @@ int v4l_capture_setup(struct encode *enc, int width, int height, int fps)
 	strcat(v4l_capture_dev, node);
 
 	fd_display = fb_display_setup();
-
+	// fd_display = fb_display_setup_tvin();
 	if ((fd_capture_v4l = open(v4l_capture_dev, O_RDWR, 0)) < 0) {
 		err_msg("Unable to open %s\n", v4l_capture_dev);
 		return -1;
@@ -378,15 +368,6 @@ void g2d_render_capture_data(int index)
 {
 	int fb_phys;
 
-//qiang_debug add start
-/*
-	int total_time;
-	struct timeval tv_start, tv_current;
-
-	gettimeofday(&tv_start, 0);
-*/
-//qiang_debug add end
-
 	if(g_display_fg) {
 		g_display_buf_count ++;
 		if(g_display_buf_count >= 3)
@@ -403,13 +384,5 @@ void g2d_render_capture_data(int index)
 		draw_image_to_framebuffer(g2d_buffers[index], g_in_width, g_in_height, g_g2d_fmt, &g_screen_info, g_display_left, g_display_top, g_display_width, g_display_height, 0, G2D_ROTATION_0, g_fb_phys);
 	}
 
-//qiang_debug add start
-/*
-	gettimeofday(&tv_current, 0);
-	total_time = (tv_current.tv_sec - tv_start.tv_sec) * 1000000L;
-	total_time += tv_current.tv_usec - tv_start.tv_usec;
-	printf("g2d time = %u us\n", total_time);
-*/
-//qiang_debug add end
 }
 
