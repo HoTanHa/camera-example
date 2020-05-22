@@ -49,6 +49,7 @@ static FILE *fpEncMvInfo = NULL;
 static FILE *fpEncSliceInfo = NULL;
 
 ////------------------------------------------------
+
 extern int device_video;
 int fd_fb_display = 0;
 // int g_display_width = 0;
@@ -84,7 +85,7 @@ unsigned char clamp(double value)
 	int abc = more < 0 ? 0 : (more > 0xff ? 0xff : more);
 	return (char)(abc & 0xff);
 }
-#define GOP_SIZE 15
+#define GOP_SIZE 25
 ////------------------------------------------------------------
 struct display_queue
 {
@@ -268,7 +269,6 @@ int fb_display_setup_tvin(void)
 	char node[8];
 	struct fb_fix_screeninfo fb_fix;
 	struct mxcfb_pos pos;
-
 
 	if ((fd_fb_display = open(fb_dev_fg, O_RDWR, 0)) < 0)
 	{
@@ -554,11 +554,12 @@ static int encoder_fill_headers_frequence(struct encode *enc)
 	else if (enc->cmdl->format == STD_AVC)
 	{
 		fillheader = 1;
-		timestamp -= 3600;
+		timestamp -= TIMESTAMP_RTP;
 		ret = vpu_write(enc->cmdl, spsbuff, 13);
 		fillheader = 1;
-		timestamp -= 3600;
+		timestamp -= TIMESTAMP_RTP;
 		ret = vpu_write(enc->cmdl, ppsbuff, 9);
+		
 	}
 	else if (enc->cmdl->format == STD_MJPG)
 	{
@@ -1041,14 +1042,14 @@ void encoder_thread(void *arg)
 	pthread_attr_init(&attr);
 	pthread_attr_setschedpolicy(&attr, SCHED_RR);
 
-	if (enc->cmdl->dst_scheme == PATH_NET)
+		if (enc->cmdl->dst_scheme == PATH_NET)
 	{
 		/* open udp port for send path */
 		enc->cmdl->dst_fd = udp_open(enc->cmdl);
 		if (enc->cmdl->dst_fd < 0)
 		{
 			//if (enc->cmdl->src_scheme == PATH_NET)
-				close(enc->cmdl->src_fd);
+			close(enc->cmdl->src_fd);
 		}
 
 		info_msg("encoder sending on port %d\n", enc->cmdl->port);
@@ -1057,23 +1058,23 @@ void encoder_thread(void *arg)
 	char file_name[60];
 	time_t t = time(NULL);
 	struct tm tm;
-	int min_old=0;
+	int min_old = 0;
 	// t = time(NULL);
 	// tm = *localtime(&t);
 	sprintf(file_name, "/home/root/mount/cam%d", device_video);
-	mkdir(file_name,  S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+	mkdir(file_name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 	while (1)
 	{
 		t = time(NULL);
 		tm = *localtime(&t);
 		memset(file_name, 0, 60);
 		min_old = tm.tm_min;
-		
+
 		sprintf(file_name, "/home/root/mount/cam%d/cam%d_%04d%02d%02d_%02d%02d.h264", device_video, device_video, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
 		enc->cmdl->dst_fd_file = open(file_name, O_CREAT | O_RDWR | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
 		if (enc->cmdl->dst_fd_file < 0)
 		{
-			printf("Open File Fail.\r\n");			
+			printf("Open File Fail.\r\n");
 			break;
 		}
 		else
@@ -1093,7 +1094,7 @@ void encoder_thread(void *arg)
 		}
 
 		enc_param.sourceFrame = &enc->fb[src_fbid];
-		enc_param.quantParam =30;//23;
+		enc_param.quantParam =25;//23;
 		enc_param.forceIPicture = 0;
 		enc_param.skipPicture = 0;
 		enc_param.enableAutoSkip = 1;
@@ -1167,7 +1168,7 @@ void encoder_thread(void *arg)
 		enc_param.forceIPicture = 1;
 		while (1)
 		{
-			if ((frame_id % GOP_SIZE) == (GOP_SIZE-1))
+			if ((frame_id % GOP_SIZE) == (GOP_SIZE - 1))
 			{
 				encoder_fill_headers_frequence(enc);
 			}
@@ -1311,7 +1312,7 @@ void encoder_thread(void *arg)
 			enc_param.forceIPicture = 0;
 			t = time(NULL);
 			tm = *localtime(&t);
-			if (((frame_id%GOP_SIZE)==0) && (tm.tm_min!=min_old))
+			if (((frame_id % GOP_SIZE) == 0) && (tm.tm_min != min_old))
 			{
 				break;
 			}
@@ -1323,7 +1324,8 @@ void encoder_thread(void *arg)
 		close(enc->cmdl->dst_scheme_file);
 		enc->cmdl->dst_scheme_file = -1;
 		nanosleep((const struct timespec[]){{0, 1000000L}}, NULL);
-		if (quitflag){
+		if (quitflag)
+		{
 			close(enc->cmdl->dst_scheme_file);
 			break;
 		}
@@ -1413,8 +1415,8 @@ void image_thread(void) // *arg)
 	///g_display_left, g_display_top, g_display_width, g_display_height
 	// g_display_width = 960;
 	// g_display_height = 540;
-	g_display_width = screen_width/2;
-	g_display_height = screen_height/2;
+	g_display_width = screen_width / 2;
+	g_display_height = screen_height / 2;
 	g_in_width = 1280;
 	g_in_height = 720;
 	g_g2d_fmt = G2D_NV12;
@@ -1458,8 +1460,8 @@ void image_thread(void) // *arg)
 		}
 
 		// draw_image_to_framebuffer_tvin(g2d_buffers[index], g_in_width, g_in_height, g_g2d_fmt, &g_screen_info, g_display_left, g_display_top, g_display_width, g_display_height, 0, G2D_ROTATION_0);
-		draw_image_to_framebuffer(g2d_buffers[index], g_in_width, g_in_height, g_g2d_fmt, &g_screen_info, g_display_left, g_display_top, g_display_width, g_display_height, 0, G2D_ROTATION_0 , g_display_base_phy);
-	
+		draw_image_to_framebuffer(g2d_buffers[index], g_in_width, g_in_height, g_g2d_fmt, &g_screen_info, g_display_left, g_display_top, g_display_width, g_display_height, 0, G2D_ROTATION_0, g_display_base_phy);
+
 #if SAVE_IMAGE
 		// image_thread_wait = 0;
 		// // usleep(100000);
@@ -1551,9 +1553,8 @@ void image_thread(void) // *arg)
 			goto image_thread_exit;
 		}
 	}
-image_thread_exit:	
+image_thread_exit:
 	pthread_attr_destroy(&attr);
-
 	pthread_exit(0);
 }
 ////goi trong ham encoder test
@@ -1568,7 +1569,7 @@ static int encoder_start(struct encode *enc)
 	RetCode ret = 0;
 
 	/***************************************/
-	
+
 	pthread_mutex_init(&vpu_mutex, NULL);
 	pthread_cond_init(&vpu_cond, NULL);
 
@@ -1616,16 +1617,17 @@ static int encoder_start(struct encode *enc)
 				image_thread_wait = 1;
 			}
 
-			if ((index%4)!=3){				////..bo frame, giam size
-				queue_buf(&vpu_q, index); 	////..dua v4l2_buff.index vao list cua queue vpu_q
-				wakeup_queue();				//// mo khoa hang doi queue dung signal
+			if ((index % 4) != 3)
+			{							  ////..bo frame, giam size
+				queue_buf(&vpu_q, index); ////..dua v4l2_buff.index vao list cua queue vpu_q
+				wakeup_queue();			  //// mo khoa hang doi queue dung signal
 			}
 			// /////---------------------
 			queue_dp_buf(&display_q, index); ////..dua v4l2_buff.index vao list cua queue vpu_q
 			wakeup_dp_queue();				 //// mo khoa hang doi queue dung signal
 
 			v4l_put_capture_data(&v4l2_buf); ////.. ioctl VIDIOC_QBUF
-			
+
 			// g2d_render_capture_data(index);
 
 			if (quitflag)
@@ -1814,13 +1816,13 @@ int encoder_open(struct encode *enc)
 	}
 
 	if (enc->cmdl->fps == 0)
-		enc->cmdl->fps = 25;  //30;
+		enc->cmdl->fps = 25; //30;
 
 	info_msg("Capture/Encode fps will be %d\n", enc->cmdl->fps);
 
 	/*Note: Frame rate cannot be less than 15fps per H.263 spec */
 	encop.frameRateInfo = enc->cmdl->fps;
-	encop.bitRate = 0;//enc->cmdl->bitrate;
+	encop.bitRate = 0; //enc->cmdl->bitrate;
 	//encop.gopSize = enc->cmdl->gop;
 	encop.gopSize = GOP_SIZE;
 	encop.slicemode.sliceMode = 0;	   /* 0: 1 slice per picture; 1: Multiple slices per picture */
@@ -2084,7 +2086,7 @@ int encode_test(void *arg)
 	/* sleep some time so that we have time to start the server */
 	if (cmdl->dst_scheme == PATH_NET)
 	{
-		sleep(2);
+		sleep(3);
 	}
 
 	/* allocate memory for must remember stuff */

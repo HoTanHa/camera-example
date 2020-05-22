@@ -209,6 +209,7 @@ udp_recv(struct cmd_line *cmd, int sd, char *buf, int n)
 	return (n);
 }
 
+
 /* send data to remote server */
 typedef struct my_rtp_header
 {
@@ -252,12 +253,13 @@ udp_send(struct cmd_line *cmd, int sd, char *buf, int n)
 	}
 	
 	rtp_header.versionpxcc = 0x80;
-	rtp_header.m_PayloadType = 96+0x0;
+	rtp_header.m_PayloadType = 96+0x0; 
 	rtp_header.SSRC = 0;
 	rtp_header.sq_num = htons(ntohs(rtp_header.sq_num) + 1);
 	rtp_header.timestamp = htonl(timestamp);
-	//rtp_header.timestamp = htonl(ntohl(rtp_header.timestamp)+ 3600);
-	timestamp+=3600;
+	//rtp_header.timestamp = htonl(ntohl(rtp_header.timestamp)+ TIMESTAMP_RTP);
+	timestamp+=TIMESTAMP_RTP;
+
 	memcpy(cmd->nbuf, &rtp_header, 12);
 	memcpy((cmd->nbuf + 12), buf, n);
 	n +=12;

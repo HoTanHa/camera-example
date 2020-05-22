@@ -204,9 +204,8 @@ int fb_display_setup(void)
 		return 0;
 	}
 
-	screen_height = g_screen_info.yres;
-	screen_width = g_screen_info.xres;
-	info_msg("SCREEN INFO: %dx%d..\r\n", screen_width, screen_height);
+	
+	
 
 	if (ioctl(fd_fb, FBIOGET_FSCREENINFO, &fb_fix) < 0)
 	{
@@ -232,8 +231,12 @@ int fb_display_setup(void)
 			close(fd_fb);
 			return 0;
 		}
-
+		
 		ioctl(fd_fb_bg, FBIOGET_VSCREENINFO, &g_screen_info);
+		
+		screen_height = g_screen_info.yres;
+		screen_width = g_screen_info.xres;
+		info_msg("SCREEN INFO: %dx%d..\r\n", screen_width, screen_height);
 		// memset(&g_screen_info, 0, sizeof(g_screen_info));
 		// g_screen_info.xres = g_display_width;
 		// g_screen_info.yres = g_display_height;

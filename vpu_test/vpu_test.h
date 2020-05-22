@@ -29,6 +29,8 @@
 #include <time.h>
 #define COMMON_INIT
 
+
+#define TIMESTAMP_RTP 3600
 extern int vpu_test_dbg_level;
 
 #define dprintf(level, fmt, arg...)     if (vpu_test_dbg_level >= level) \
