@@ -8,7 +8,7 @@ LIB_DIR=/home/hotanha/opt/fsl-imx-xwayland/4.14-sumo/sysroots/x86_64-pokysdk-lin
 CFLAGS= -D_POSIX_C_SOURCE=200809L -std=c11 -W -Wall -Wunused-parameter -O2 -DLINUX -march=armv7-a -mfloat-abi=hard -mfpu=neon -mtune=cortex-a7 -static -I$(ROOTFS_DIR) -I$(ROOTFS_DIR)/usr/include/imx
 #  -pedantic  -W -Wall -Wunused-parameter 
 # -D_POSIX_C_SOURCE=200809L  -std=c11 -pedantic
-LFLAGS +=  -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed -L $(LIB_DIR) -L $(ROOTFS_DIR)/lib -L $(ROOTFS_DIR)/usr/lib -L $(ROOTFS_DIR)/usr/include/imx/linux -lg2d -lvpu -lipu -lrt -lpthread -lm
+LFLAGS +=  -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed -L $(LIB_DIR) -L $(ROOTFS_DIR)/lib -L $(ROOTFS_DIR)/usr/lib -L $(ROOTFS_DIR)/usr/include/imx/linux -L $(ROOTFS_DIR)/usr/src -lg2d -lvpu -lipu -lrt -lpthread -lm
 
 OBJS = main.o \
       dec.o \
