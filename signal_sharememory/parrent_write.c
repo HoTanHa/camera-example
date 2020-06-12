@@ -12,7 +12,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 
-#define BUF_SIZE 1024
+#define BUF_SIZE_SHM 1024
 #define SHM_KEY 0x1234
 
 #define info_msg(fmt, ...)                                               \
@@ -25,7 +25,7 @@ struct shmseg
 {
 	int cnt;
 	int complete;
-	char buf[BUF_SIZE];
+	char buf[BUF_SIZE_SHM];
 	char ip_address[16];
 	int port1;
 	int port2;
@@ -37,6 +37,7 @@ void fill_ip(char *bufpip);
 int count = 0;
 int sigint = 0;
 int sigusr1_p=0;
+int sigusr2_p=0;
 void sigint_parent()
 {
 	if (count < 3)
@@ -48,6 +49,9 @@ void sigint_parent()
 }
 void sigusr1_parent(){
 	sigusr1_p=1;
+}
+void sigusr2_parent(){
+	sigusr2_p=1;
 }
 void sigchild(int signum)
 {
@@ -70,12 +74,13 @@ int main(int argc, char *argv[])
 	}
 	if (pid1 == 0)
 	{ /* child */
-		execl("child_read.out", "child_process", (char *)NULL);
+		// execl("child_read.out", "child_process", (char *)NULL);
+		execl("mxc_vpu_test.out", "process2", "-E", "-x 0 -w 1280 -h 720 -c 10000 -f 2", (char *)0);
 	}
 
 	signal(SIGINT, sigint_parent);
 	signal(SIGUSR1, sigusr1_parent);
-
+	signal(SIGUSR2, sigusr2_parent);
 	int shmid, numtimes;
 	struct shmseg *shmp;
 	char *bufptr;
@@ -103,7 +108,7 @@ int main(int argc, char *argv[])
 	shmp->port2 = 4000;
 	shmp->port3 = 5000;
 	shmp->port4 = 6000;
-	spaceavailable = BUF_SIZE;
+	spaceavailable = BUF_SIZE_SHM;
 	
 	while (1){
 		info_msg("PARRENT pid: %d\r\n", getpid());
@@ -114,17 +119,21 @@ int main(int argc, char *argv[])
 			info_msg("Writing Process: Shared Memory Write: Wrote %d bytes\n", shmp->cnt);
 			bufptr = shmp->buf;
 			buffip = shmp->ip_address;
-			shmp->port1 += 1;
+			// shmp->port1 += 1;
 			shmp->port2 += 2;
 			shmp->port3 += 3;
 			shmp->port4 += 4;
-			spaceavailable = BUF_SIZE;
+			spaceavailable = BUF_SIZE_SHM;
 			kill(pid1, SIGUSR1);
 			sigusr1_p=0;
 		}
+		if (sigusr2_p){
+			kill(pid1, SIGUSR2);
+			sigusr2_p=0;
+		}
 		if (sigint){
 			if (count==1){
-				kill(pid1, SIGHUP);
+				// kill(pid1, SIGHUP);
 			}
 			if (count==2){
 				kill(pid1, SIGINT);
@@ -201,12 +210,12 @@ int fill_buffer(char *bufptr, int size)
 
 void fill_ip(char *bufpip)
 {
-	static unsigned char a = 1;
+	static unsigned char a = 40;
 	static unsigned char b = 100;
 	char *str_wtire = (char *)malloc(16 + 1);
 	sprintf(str_wtire, "192.168.%d.%d", a, b);
 	memcpy(bufpip, str_wtire, strlen(str_wtire));
-	a += 2;
-	b += 10;
+	// a += 2;
+	// b += 10;
 	free(str_wtire);
 }

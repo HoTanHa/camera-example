@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <signal.h>
 
-#define BUF_SIZE 1024
+#define BUF_SIZE_SHM 1024
 #define SHM_KEY 0x1234
 
 #define info_msg(fmt, ...)                                               \
@@ -21,7 +21,7 @@ struct shmseg
 {
 	int cnt;
 	int complete;
-	char buf[BUF_SIZE];
+	char buf[BUF_SIZE_SHM];
 	char ip_address[16];
 	int port1;
 	int port2;

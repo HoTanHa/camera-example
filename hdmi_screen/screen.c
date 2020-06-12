@@ -17,7 +17,8 @@ int main()
     long int location = 0;
 
     // Open the file for reading and writing
-    fbfd = open("/dev/fb0", O_RDWR);
+    // fbfd = open("/dev/fb0", O_RDWR);
+    fbfd = open("/dev/fb", O_RDWR);
     if (fbfd == -1)
     {
         perror("Error: cannot open framebuffer device");
