@@ -576,6 +576,7 @@ int fb_display_setup(void)
 		close(fd_capture_v4l);
 		return TFAIL;
 	}
+	
 
 	if (ioctl(fd_fb_display, FBIOGET_VSCREENINFO, &g_screen_info) < 0)
 	{
@@ -583,11 +584,17 @@ int fb_display_setup(void)
 		return TFAIL;
 	}
 
+	info_msg("Screen info: %d - %d .\r\n", g_screen_info.width, g_screen_info.height);
+	info_msg("Screen info: %d - %d .\r\n", g_screen_info.xres, g_screen_info.yres);
+	info_msg("Screen info: %d - %d .\r\n", g_screen_info.xres_virtual, g_screen_info.yres_virtual);
+	info_msg("Screen info: %d - %d - %d.\r\n", g_screen_info.colorspace, g_screen_info.right_margin, g_screen_info.upper_margin);
+	info_msg("Screen info: %d - %d .\r\n", g_screen_info.xoffset, g_screen_info.yoffset);
 	if (ioctl(fd_fb_display, FBIOGET_FSCREENINFO, &fb_fix) < 0)
 	{
 		printf("fb_display_setup FBIOGET_FSCREENINFO failed\n");
 		return TFAIL;
 	}
+	
 
 	printf("fb_fix.id = %s.\r\n", fb_fix.id);
 	//  if ((strcmp(fb_fix.id, "DISP4 FG") == 0) || (strcmp(fb_fix.id, "DISP3 FG") == 0))
@@ -595,26 +602,26 @@ int fb_display_setup(void)
 
 		// info_msg("FB_fix.-.-.\r\n");
 		// g_display_fg = 1;
-		if (g_g2d_render)
-		{
-			pos.x = 0;
-			pos.y = 0;
-		}
+		// if (g_g2d_render)
+		// {
+		// 	pos.x = 0;
+		// 	pos.y = 0;
+		// }
 		
-		if (ioctl(fd_fb_display, MXCFB_SET_OVERLAY_POS, &pos) < 0)
-		{
-			printf("fb_display_setup MXCFB_SET_OVERLAY_POS failed\n");
-			return TFAIL;
-		}
+		// if (ioctl(fd_fb_display, MXCFB_SET_OVERLAY_POS, &pos) < 0)
+		// {
+		// 	printf("fb_display_setup MXCFB_SET_OVERLAY_POS failed\n");
+		// 	return TFAIL;
+		// }
 
-		strcpy(fb_display_bg_dev, "/dev/fb0");
+		// strcpy(fb_display_bg_dev, "/dev/fb0");
 		if ((fd_fb_bg = open(fb_display_bg_dev, O_RDWR)) < 0)
 		{
 			printf("Unable to open bg frame buffer\n");
 			return TFAIL;
 		}
 
-		/* Overlay setting */
+		// /* Overlay setting */
 		// alpha.alpha = 0;
 		// alpha.enable = 1;
 		// if (ioctl(fd_fb_bg, MXCFB_SET_GBL_ALPHA, &alpha) < 0)
@@ -632,12 +639,15 @@ int fb_display_setup(void)
 				return TFAIL;
 			}
 
-			g_screen_info.yres_virtual = g_screen_info.yres * g_display_num_buffers;
+			// g_screen_info.yres_virtual = g_screen_info.yres * g_display_num_buffers;
 			// memset(&g_screen_info, 0, sizeof(g_screen_info));
 			g_screen_info.xres = 1920;
 			g_screen_info.yres = 1080;
-			g_screen_info.yres_virtual = g_screen_info.yres * g_display_num_buffers;
-			g_screen_info.nonstd = V4L2_PIX_FMT_RGB565;//g_display_fmt;
+			// g_screen_info.yres_virtual = g_screen_info.yres * g_display_num_buffers;
+			// g_screen_info.nonstd = G2D_BGR565;//g_display_fmt;
+			g_screen_info.activate |= FB_ACTIVATE_FORCE;
+			g_screen_info.vmode = FB_VMODE_MASK;
+		
 			if (ioctl(fd_fb_display, FBIOPUT_VSCREENINFO, &g_screen_info) < 0)
 			{
 				printf("fb_display_setup FBIOPUT_VSCREENINFO failed\n");
@@ -645,12 +655,16 @@ int fb_display_setup(void)
 			}
 			ioctl(fd_fb_display, FBIOGET_FSCREENINFO, &fb_fix);
 			ioctl(fd_fb_display, FBIOGET_VSCREENINFO, &g_screen_info);
+			info_msg("Screen info: %d - %d .\r\n", g_screen_info.width, g_screen_info.height);
+
 		}
 	}
 	
 	
 
-	ioctl(fd_fb_display, FBIOBLANK, FB_BLANK_UNBLANK);
+	if (ioctl(fd_fb_display, FBIOBLANK, FB_BLANK_UNBLANK)<0){
+		info_msg("Can not set fb_blank_unblank");
+	}
 
 	g_display_base_phy = fb_fix.smem_start;
 	printf("fb: smem_start = 0x%x, smem_len = 0x%x.\r\n", (unsigned int)fb_fix.smem_start, (unsigned int)fb_fix.smem_len);
@@ -698,9 +712,13 @@ int mxc_v4l_tvin_test(void)
 	gettimeofday(&tv_start, 0);
 	info_msg("start time = %d s, %d us\n", (unsigned int)tv_start.tv_sec,  (unsigned int)tv_start.tv_usec);
 
-	
-	for (i = 0; i < g_frame_count; i++)
-	{
+	uint8_t x1, x2, x3, x4;
+	x1 = 0; x2 = 60; x3 = 120; x4 = 180;
+	i=0;
+	// for (i = 0; i < 1000; i++)
+	while (1)	
+	{ 
+		i++;
 		// memset(&capture_buf, 0, sizeof(capture_buf));
 		// capture_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		// capture_buf.memory = g_mem_type;
@@ -715,19 +733,39 @@ int mxc_v4l_tvin_test(void)
 		{
 			g_display_width = 960;
 			g_display_height = 540;
-			int index = capture_buf.index;
-			index = 0;
-			memset(capture_buffers[index].start, 0, 1280*720*2);
-			memset(capture_buffers[index+4].start, 60, 1280*720*2);
-			memset(capture_buffers[index+8].start, 120, 1280*720*2);
-			memset(capture_buffers[index+12].start, 200, 1280*720*2);
+			static int index =0;//= capture_buf.index;
+			index++;
+			if (index==4) index=0;
+			memset(capture_buffers[index].start, x1, 1280*720);
+			memset(capture_buffers[index+4].start, x2, 1280*720);
+			memset(capture_buffers[index+8].start, x3, 1280*720);
+			memset(capture_buffers[index+12].start, x4, 1280*720);
+			memset(&(capture_buffers[index].start[1280*720]), 15, 1280*720);
+			memset(&(capture_buffers[index+4].start[1280*720]), 72, 1280*720);
+			memset(&(capture_buffers[index+8].start[1280*720]), 130, 1280*720);
+			memset(&(capture_buffers[index+12].start[1280*720]), 200, 1280*720);
+
+			g_g2d_fmt = G2D_NV12;
 			draw_image_to_framebuffer(g2d_buffers[4 * 0 + index], 1280, 720, g_g2d_fmt, &g_screen_info, 0, 0, 960, 540, 0, G2D_ROTATION_0);
+			// usleep(10);
 			draw_image_to_framebuffer(g2d_buffers[4 * 1 + index], 1280, 720, g_g2d_fmt, &g_screen_info, 960, 0, 960, 540, 0, G2D_ROTATION_0);
+			// usleep(10);
 			draw_image_to_framebuffer(g2d_buffers[4 * 2 + index], 1280, 720, g_g2d_fmt, &g_screen_info, 0, 540, 960, 540, 0, G2D_ROTATION_0);
+			// usleep(10);
 			draw_image_to_framebuffer(g2d_buffers[4 * 3 + index], 1280, 720, g_g2d_fmt, &g_screen_info, 960, 540, 960, 540, 0, G2D_ROTATION_0);
 			
 		}
-		usleep(50000);
+		// usleep(20000);
+		// x1++; x2++; x3++; x4++;
+		static int abc =0; 
+		abc=0x000FFFFF;
+		while (abc>1)
+		{
+		abc--;
+		}
+		
+		printf("%02X - %02X - %02X - %02x - %d.. \r\n",x1++, x2++, x3++, x4++, display_buf_count++); 
+		
 		// if (ioctl(fd_capture_v4l, VIDIOC_QBUF, &capture_buf) < 0)
 		// {
 		// 	printf("VIDIOC_QBUF failed\n");
@@ -739,6 +777,7 @@ int mxc_v4l_tvin_test(void)
 		}
 		
 	}
+	quitflag = 1;
 	gettimeofday(&tv_current, 0);
 	total_time = (tv_current.tv_sec - tv_start.tv_sec) * 1000000L;
 	total_time += tv_current.tv_usec - tv_start.tv_usec;
@@ -874,12 +913,13 @@ int main(int argc, char **argv)
 
 	mxc_v4l_tvin_test();
 
-	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	ioctl(fd_capture_v4l, VIDIOC_STREAMOFF, &type);
+	// type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	// ioctl(fd_capture_v4l, VIDIOC_STREAMOFF, &type);
 
 	if (g_display_fg)
 		ioctl(fd_fb_display, FBIOBLANK, FB_BLANK_NORMAL);
 
+	info_msg("FINISH...............\r\n");
 	if (g_g2d_render)
 	{
 		for (i = 0; i < g_capture_num_buffers*4; i++)
