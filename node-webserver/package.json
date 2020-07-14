@@ -1,29 +1,27 @@
 {
-  "name": "server",
+  "name": "webserver",
   "version": "1.0.0",
+  "description": "",
   "main": "server.js",
   "dependencies": {
+    "body-parser": "^1.19.0",
     "cookie-parser": "^1.4.5",
     "ejs": "^3.1.3",
     "express": "^4.17.1",
     "express-ejs-layouts": "^2.5.0",
     "express-session": "^1.17.1",
-    "fs": "0.0.1-security",
+    "file-type": "^14.6.2",
+    "moment": "^2.27.0",
     "morgan": "^1.10.0",
-    "node-media-server": "^2.1.9",
-    "path": "^0.12.7",
-    "rtmp-server": "^0.2.0",
+    "read-chunk": "^3.2.0",
     "serve-favicon": "^2.5.0",
     "stylus": "^0.54.7"
   },
-  "devDependencies": {
-    "video.js": "^7.8.3"
-  },
+  "devDependencies": {},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
   "author": "",
-  "license": "ISC",
-  "description": ""
+  "license": "ISC"
 }

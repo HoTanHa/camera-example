@@ -1,0 +1,55 @@
+<%- contentFor('content') %>
+<div class="container">
+	<form>
+		<div class="form-check-inline" style="padding: 10px;">
+			<label class="form-check-label" for="radio0">
+				<input type="radio" class="form-check-input" id="radio0" name="optradio" value="option1">Camera 0
+			</label>
+		</div>
+		<div class="form-check-inline" style="padding: 10px;">
+			<label class="form-check-label" for="radio1">
+				<input type="radio" class="form-check-input" id="radio1" name="optradio" value="option2">Camera 1
+			</label>
+		</div>
+		<div class="form-check-inline" style="padding: 10px;">
+			<label class="form-check-label" for="radio2">
+				<input type="radio" class="form-check-input" id="radio2" name="optradio" value="option1">Camera 2
+			</label>
+		</div>
+		<div class="form-check-inline" style="padding: 10px;">
+			<label class="form-check-label" for="radio3">
+				<input type="radio" class="form-check-input" id="radio3" name="optradio" value="option2">Camera 3
+			</label>
+		</div>
+		<div>
+			<div class="row">
+				<div class="col-sm-6">
+					<h6> Thời gian trước:</h6>
+					<input type="datetime-local" id="timeInput1">
+				</div>
+				<div class="col-sm-6">
+					<h6> Thời gian sau:</h6>
+					<input type="datetime-local" id="timeInput2">
+				</div>
+			</div>
+		</div>
+		
+	</form>
+	<div>
+		<button id="btnShowFile" type="button" class="btn btn-primary btn-sm">Show File</button>
+	</div>
+	<div class="row " id='abc' style="height: 100%;">
+		<div class="col-md-8">
+			<div id='div_video'>
+				<video id="video" height="auto" width='100%' controls>Chọn danh sách file video
+					<!-- <source src='http://localhost:3000/video' type="video/mp4"> -->
+				</video>
+			</div>
+		</div>
+		<div class="col-md-4">
+			<div id="listFile" class="listFile">
+			</div>
+		</div>
+	</div>
+
+</div>

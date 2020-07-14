@@ -787,7 +787,8 @@ int mxc_v4l_tvin_test(void)
 
 		/*--------------------------------------------------------------------*/
 		//se them vao ow day de chhup anh
-		if ((i % 100) == 0)
+		// if ((i % 100) == 0)
+		if (i<0)
 		{
 		//	printf("size of Capture_buf: %d\r\n", capture_buf.length);
 			printf("size of buffer: %d\r\n", buffers[0].length);

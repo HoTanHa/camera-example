@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Document</title>
+	<link href="https://vjs.zencdn.net/7.8.3/video-js.css" rel="stylesheet" />
+
+	<script src="https://vjs.zencdn.net/ie8/1.1.2/videojs-ie8.min.js"></script>
+
+	<script src="https://vjs.zencdn.net/7.8.3/video.js"></script>
+
+	<script src="https://cdn.bootcss.com/flv.js/1.5.0/flv.min.js"></script>
+	<script src="http://releases.flowplayer.org/js/flowplayer-3.2.12.min.js"></script>
+	<script src="https://cdn.bootcss.com/flv.js/1.5.0/flv.min.js"></script>
+			
+</head>
+
+<body>
+	<h1>HELLO WORLD</h1>
+	<div>
+		<div>
+			<video id="my-video" class="video-js" controls preload="auto" width="640" height="360" autoplay
+				data-setup='{"techorder" : ["flash","html5] }'>
+				<source src="http://127.0.0.1:1935/live/camera0.m3u8" type="application/x-rtmp" />
+		</div>
+		<div>
+			<video id="my-video" class="video-js" controls preload="auto" width="640" height="360" autoplay
+				data-setup='{"techorder" : ["flash","html5] }'>
+				<source src="rtmp://192.168.20.19:1935/live/camera0.flv"
+					type='video/mp4; codecs="avc1.42E01E, mp4a.40.2"' />
+			</video>
+		</div>
+
+		<div>
+			<video id="my-video" class="video-js" controls preload="auto" width="640" height="360" autoplay
+				data-setup='{"techorder" : ["flash","html5] }'>
+				<source src="http://192.168.20.19:1935/live/camera0.flv" />
+				<!-- type='video/mp4; codecs="avc1.42E01E, mp4a.40.2"' /> -->
+			</video>
+		</div>
+
+		<div>
+			<video id="my-video" class="video-js" controls preload="auto" width="640" height="360" autoplay
+				data-setup='{"techorder" : ["flash","html5] }'>
+				<source src="rtmp://192.168.20.19:1935/live/camera0"
+					type='videp/mp4; codecs="avc1.42E01E, mp4a.40.2"' />
+			</video>
+		</div>
+		<div>
+			<video id="player" class="video-js vjs-default-skin" height="360" width="640" controls preload="none">
+				<source src="http://localhost:8000/live/camera0.flv" type="application/x-rtmp" />
+			</video>
+			<script>
+				var player = videojs('#player');
+			</script>
+		</div>
+
+		<div>
+			<video id="videoElement"></video>
+			<script>
+				if (flvjs.isSupported()) {
+					var videoElement = document.getElementById('videoElement');
+					var flvPlayer = flvjs.createPlayer({
+						type: 'flv',
+						url: 'http://localhost:8000/live/camera0.flv'
+					});
+					flvPlayer.attachMediaElement(videoElement);
+					flvPlayer.load();
+					flvPlayer.play();
+				}
+			</script>
+		</div>
+
+		<script src="https://vjs.zencdn.net/7.8.3/video.js"></script>
+	</div>
+
+</body>
+
+</html>
+
+<!-- <html>
+<head>
+<title> Stream Player </title>
+
+<link href="https://vjs.zencdn.net/7.8.3/video-js.css" rel="stylesheet" />
+<script src="https://vjs.zencdn.net/7.8.3/video.js"></script>
+<script>videojs.options.flash.swf = "video-js.swf";</script>
+</head>
+<body>
+<video
+id="livestream"
+class="video-js vjs-default-skin vjs-big-play-centered"
+controls
+autoplay
+preload="auto"
+data-setup='{"techorder" : ["flash","html5] }'>
+<source src="rtmp://192.168.40.100:1935/live/camera0" type="rtmp/h264">
+</video>
+</body>
+</html> -->

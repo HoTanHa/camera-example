@@ -1,0 +1,94 @@
+/*
+* Base structure
+*/
+
+/* Move down content because we have a fixed navbar that is 50px tall */
+body {
+    background-color: #f7feff;
+}
+
+footer p{
+    padding: 10px 0 0 0;
+    font-size: min(18px,calc(10px + 0.5vw));
+}
+footer{
+    height: 40px;
+    position: fixed;
+
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    margin-top: 10px;
+    background-color: rgb(234, 246, 255);
+}
+
+.header_link a{
+    font-size: 12px;;
+}
+
+.text-header-u > p {
+    color: white;
+    /* font-size: 22px;
+    font-size: 1.7vw; */
+    font-size:min(28px,calc(6px + 1.2vw));
+    margin-top: 5px;
+}
+
+.icon-header li {
+    margin: 0 5px 5px 5px;
+    max-height: 14px;
+    /* font-size:calc(6px + 1vw); */
+    color: rgb(255, 255, 255);
+}
+.icon-header  li span {
+    /* font-size: max(1.5vw, 16px); */
+    font-size: min(24px,calc(10px + 1.5vw));
+    color: rgb(255, 255, 255);
+    padding-bottom: 10px;
+}
+
+.line-both-side{
+    position: relative;
+    /* font-size: 30px; */
+    z-index: 1;
+    overflow: hidden;
+    text-align: center;
+    font-weight: bold;
+}
+
+.line-both-side:before, .line-both-side:after {
+    position: absolute;
+    top: 51%;
+    overflow: hidden;
+    width: 50%;
+    height: 2px;
+    content: '\a0';
+    background-color: blue;
+    font-weight: bold;
+}
+.line-both-side:before{
+    margin-left: -50%;
+    text-align: right;
+}
+.line-both-side span {
+    margin: 15px 15px;
+    font-size: 22px;
+    
+}
+
+/* ----------------------------------------------- */
+.listFile ul{
+    /* max-height:100%; */
+    /* height: auto;
+    width: 100%; */
+    overflow:hidden; 
+    overflow-y:scroll;
+}
+.listFile_li {
+    padding: 5px;
+    align-items: center;
+    text-align: center;
+}
+.listFile_span {
+    text-align: center;
+}

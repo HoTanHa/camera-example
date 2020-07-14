@@ -63,18 +63,22 @@ int main(void)
     __s32 res;
     char buf[10];
 
-    // /* Using SMBus commands */
-    res = i2c_smbus_read_byte_data(fd, reg);
-    if (res < 0)
-    {
-        /* ERROR HANDLING: i2c transaction failed */
-        printf("READ Fail\r\n");
-        exit(0);
-    }
-    else
-    {
-        /* res contains the read word */
-        printf("Read Success %d", res);
+    for (int i= 0; i<0xFF; i++){
+        reg = i;
+      // /* Using SMBus commands */
+        res = i2c_smbus_read_byte_data(fd, reg);
+        if (res < 0)
+        {
+            /* ERROR HANDLING: i2c transaction failed */
+            printf("READ Fail\r\n");
+            exit(0);
+        }
+        else
+        {
+            /* res contains the read word */
+            printf("Read Success 0x%02X - %02X \r\n", reg,res);
+        }
+        usleep(50000);
     }
 
     /*
