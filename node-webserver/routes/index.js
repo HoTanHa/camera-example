@@ -29,11 +29,13 @@ router.get('/info', function (req, res) {
 var time1_g = moment.now();
 var search_file = 0;
 var arrFile = [];
-const objectFile = { path: "", cam: 0, listFile: ['', ''] };
-var arrObjFile = [];
+const objFile = {name:"", time:0};
+const obj_Folder = { path: "", cam: 0, listFile: [objFile] };
+var arrObj_Folder = [];
 
 async function getfilename() {
 
+	var yyyy, mm, dd, hh, min;
 	var time2 = moment.now();
 	if (((time2 - time1_g) > 5 * 60 * 1000) || (search_file == 0)) {
 		////truy cap 1 lan
@@ -41,7 +43,7 @@ async function getfilename() {
 		time1_g = time2;
 		search_file = 1;
 		arrFile = [];
-		arrObjFile = [];
+		arrObj_Folder = [];
 
 		var testFolder = "/home/hotanha/image/mount/";
 		// let fs_item = fs.readdirSync(testFolder);	
@@ -60,10 +62,10 @@ async function getfilename() {
 			if (stats.isDirectory()) {
 				for (let ii = 0; ii < 4; ii++) {
 					var camPath = folder_in_mount + "/cam" + ii.toString() + "/";
-					var objFile = Object.create(objectFile);
-					objFile.path = camPath;
-					objFile.cam = ii;
-					objFile.listFile = [];
+					var objfolder = Object.create(obj_Folder);
+					objfolder.path = camPath;
+					objfolder.cam = ii;
+					objfolder.listFile = [];
 					console.log(camPath);
 					var fs_file_video;
 					try {
@@ -78,16 +80,25 @@ async function getfilename() {
 							let filejson = await FileType.fromFile(path_video);
 							if ((filejson != null) && (filejson.ext == 'mp4')) {
 								arrFile.push(fs_file_video[j].toString());
-								objFile.listFile.push(fs_file_video[j].toString());
+								var obj = Object.create(objFile);
+								obj.name = fs_file_video[j].toString();
+								yyyy = obj.name.substring(5, 9);
+								mm = obj.name.substring(9, 11);
+								dd = obj.name.substring(11, 13);
+								hh = obj.name.substring(14, 16);
+								min = obj.name.substring(16, 18);
+								obj.time = moment({ y: yyyy, M: mm - 1, d: dd, h: hh, m: min, s: 0, ms: 0 });
+								objfolder.listFile.push(obj);
 							}
 						}
 					}
-					arrObjFile.push(objFile);
+					arrObj_Folder.push(objfolder);
 				}
 			}
 
 		}
 	}
+	console.log(arrObj_Folder);
 	return arrFile;
 };
 
@@ -112,26 +123,20 @@ router.get('/getfile', async function (req, res) {
 	console.log(s1.format());
 
 	let array_file = [];
-	var yyyy, mm, dd, hh, min;
 	var time_video;
-	for (var item = 0; item < arrObjFile.length; item++) {
-		if (arrObjFile[item].cam == cam) {
-			for (var i = 0; i < arrObjFile[item].listFile.length; i++) {
-				yyyy = arrObjFile[item].listFile[i].substring(5, 9);
-				mm = arrObjFile[item].listFile[i].substring(9, 11);
-				dd = arrObjFile[item].listFile[i].substring(11, 13);
-				hh = arrObjFile[item].listFile[i].substring(14, 16);
-				min = arrObjFile[item].listFile[i].substring(16, 18);
-				time_video = moment({ y: yyyy, M: mm - 1, d: dd, h: hh, m: min, s: 0, ms: 0 });
-				// console.log(time_video);
+	for (var item = 0; item < arrObj_Folder.length; item++) {
+		if (arrObj_Folder[item].cam == cam) {
+			for (var i = 0; i < arrObj_Folder[item].listFile.length; i++) {
+				time_video = arrObj_Folder[item].listFile[i].time;
 				if ((time_video >= time1) && (time_video <= time2)) {
-					array_file.push(arrObjFile[item].listFile[i]);
+					array_file.push(arrObj_Folder[item].listFile[i].name);
 				}
 			}
 		}
 	}
 
 	console.log(array_file);
+	array_file.sort();
 	res.send({ arrFile: array_file });
 	// res.send({arrFile: arrFileVideo});
 
@@ -143,11 +148,11 @@ router.get('/video', function (req, res) {
 	// const path = '/home/hotanha/image/' + filename;
 	var path = '';
 	var cam = parseInt(filename.substring(3, 4));
-	for (var item = 0; item < arrObjFile.length; item++) {
-		if (arrObjFile[item].cam === cam) {
-			for (var i = 0; i < arrObjFile[item].listFile.length; i++) {
-				if (filename === arrObjFile[item].listFile[i]) {
-					path = arrObjFile[item].path + filename;
+	for (var item = 0; item < arrObj_Folder.length; item++) {
+		if (arrObj_Folder[item].cam === cam) {
+			for (var i = 0; i < arrObj_Folder[item].listFile.length; i++) {
+				if (filename === arrObj_Folder[item].listFile[i].name) {
+					path = arrObj_Folder[item].path + filename;
 					console.log(path);
 					break;
 				}

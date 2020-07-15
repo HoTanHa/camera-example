@@ -33,22 +33,39 @@
 				</div>
 			</div>
 		</div>
-		
+
 	</form>
 	<div>
-		<button id="btnShowFile" type="button" class="btn btn-primary btn-sm">Show File</button>
+		<div class="row">
+			<div class="col-6">
+				<button id="btnShowFile" type="button" class="btn btn-primary">Show File</button>
+			</div>
+		</div>
 	</div>
 	<div class="row " id='abc' style="height: 100%;">
-		<div class="col-md-8">
+		<div class="col-md-8" style="padding: 5px;">
 			<div id='div_video'>
 				<video id="video" height="auto" width='100%' controls>Chọn danh sách file video
 					<!-- <source src='http://localhost:3000/video' type="video/mp4"> -->
 				</video>
 			</div>
 		</div>
-		<div class="col-md-4">
+		<div class="col-md-4" id="listfile11">
+			<div class="row">
+				<div class="col-6">
+					<button id="btnTang" ><span class="material-icons">
+						arrow_downward
+						</span></button>
+				</div>
+				<div class="col-6">
+					<button id="btnGiam" ><span class="material-icons">
+						arrow_upward
+						</span></button>
+				</div>
+			</div>
 			<div id="listFile" class="listFile">
 			</div>
+
 		</div>
 	</div>
 

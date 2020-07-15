@@ -1,5 +1,8 @@
 $(document).ready(function () {
 
+    $("#btnTang").hide();
+    $("#btnGiam").hide();
+    var sapxep = 1;
     var clickbtnShowFile = 0;
     $("#btnShowFile").click(() => {
         document.getElementById('listFile').innerHTML = "";
@@ -13,7 +16,7 @@ $(document).ready(function () {
         var time2 = moment($("#timeInput2").val(), moment.DATETIME_LOCAL);
         var camera;
         if (cam0_Checked || cam1_Checked || cam2_Checked || cam3_Checked) {
-            camera = (cam0_Checked) ? 0 :((cam1_Checked)? 1 : ((cam2_Checked)? 2:3));
+            camera = (cam0_Checked) ? 0 : ((cam1_Checked) ? 1 : ((cam2_Checked) ? 2 : 3));
             console.log("camera:" + camera);
         }
         else {
@@ -24,18 +27,18 @@ $(document).ready(function () {
         var time_now1 = moment().subtract(5, "minute");
         // var time_now1 = moment();
         var time_now2 = moment().subtract(2, "minute");
-        console.log(time1 +"   " + time_now1);
-        console.log(time_now1-time1);
+        console.log(time1 + "   " + time_now1);
+        console.log(time_now1 - time1);
         if (time1 > time_now1) {
             alert("Chon thoi gian bat dau nho hon hien tai 5 phut");
             return;
         }
-        if ((time1>=time2)){
+        if ((time1 >= time2)) {
             alert("Chon thoi gian ket thuc lon hon thoi gian bat dau");
             return;
         }
 
-        if ((time2 > time_now2)){
+        if ((time2 > time_now2)) {
             time2 = time_now2;
             $('#timeInput2').val(time_now2.format("YYYY-MM-DDTHH:mm"));
         }
@@ -43,13 +46,16 @@ $(document).ready(function () {
 
         if (clickbtnShowFile == 0) {
             // clickbtnShowFile = 1;
-            $.get('/getfile?cam='+camera+ '&t1='+time1+'&t2='+time2, (data, status) => {
+            $.get('/getfile?cam=' + camera + '&t1=' + time1 + '&t2=' + time2, (data, status) => {
                 var arr = data.arrFile;
-                if ((arr != null)&&(arr.length!=0)) {
+                if ((arr != null) && (arr.length != 0)) {
                     document.getElementById('listFile').innerHTML = "";
                     document.getElementById('listFile').appendChild(makeUL(arr));
                     var s1 = $('#div_video').height();
                     $('#listFile_ul').height(s1);
+                    $("#btnTang").show();
+                    $("#btnGiam").show();
+                    sapxep = 1;
                 }
                 else {
                     alert('Khong co video luu trong khoang thoi gian duoc chon');
@@ -58,9 +64,26 @@ $(document).ready(function () {
         }
     })
 
+
+    $("#btnTang").click(() => {
+        if (sapxep === 0) {
+            sapxep = 1;
+            var list = $('#listFile_ul');
+            var listItems = list.children('li');
+            list.append(listItems.get().reverse());
+        }
+    });
+    $("#btnGiam").click(() => {
+        if (sapxep === 1) {
+            sapxep = 0;
+            var list = $('#listFile_ul');
+            var listItems = list.children('li');
+            list.append(listItems.get().reverse());
+        }
+    });
     $(window).resize(function () {
         var s1 = $('#div_video').height();
-        $('#listFile_ul').height(s1 - 5);
+        $('#listFile_ul').height(s1);
     });
 
     $('#listFile').on('click', 'a', (event) => {
@@ -81,7 +104,7 @@ $(document).ready(function () {
     var isoStr = moment().format();
     $('#timeInput1').val(isoStr0.substring(0, 16));
     $('#timeInput2').val(isoStr.substring(0, 16));
-    
+
     // var isoStr0 = new Date(new Date().getTime() - 5 * 60000).toISOString();
     // var isoStr = new Date().toISOString();
     // $('#timeInput1').val(isoStr0.substring(0, isoStr0.length - 8));
