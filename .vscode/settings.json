@@ -1,9 +1,0 @@
-{
-	"editor.fontSize": 13,
-	"files.associations": {
-		"ioctl.h": "c",
-		"stdlib.h": "c",
-		"libv4l2.h": "c",
-		"chrono": "c"
-	}
-}
