@@ -82,7 +82,8 @@ footer{
     /* height: auto;
     width: 100%; */
     overflow:hidden; 
-    overflow-y:scroll;
+    /* overflow-y:scroll; */
+    overflow-y:auto;
 }
 .listFile_li {
     padding: 5px;
